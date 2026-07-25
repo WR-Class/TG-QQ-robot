@@ -136,6 +136,10 @@ class NapCatWSClient:
 
             # 群消息：缓存 + 名片检查 + 图片 OCR
             if post_type == "message" and message_type == "group":
+                # 过滤其他机器人的消息（sender.role == "bot"）
+                _grp_sender = data.get("sender") or {}
+                if str(_grp_sender.get("role", "")).lower() == "bot":
+                    return
                 is_at_msg = await self._handle_group_message(data)
                 # @消息不再走名片检查和OCR检测
                 if not is_at_msg:
@@ -190,6 +194,11 @@ class NapCatWSClient:
                     text += seg.get("data", {}).get("text", "")
         if not text:
             text = re.sub(r"\[CQ:[^\]]+\]", "", raw_msg)
+
+        # ===== 过滤其他机器人的消息（不做检测、不回复、不缓存）=====
+        sender_raw = data.get("sender") or {}
+        if str(sender_raw.get("role", "")).lower() == "bot":
+            return False
 
         # ===== 自动学习：首次发现群时创建配置 =====
         if group_id:
@@ -253,9 +262,30 @@ class NapCatWSClient:
             except Exception as e:
                 logger.warning(f"[NapCat WS] 斜杠指令异常: {e}")
 
-        # ===== FAQ 自动问答匹配（非斜杠指令消息） =====
-        faq_handled = False
+        # ===== 消息缓存（无论是否 @ 都执行）=====
+        if group_id not in _msg_cache:
+            _msg_cache[group_id] = []
+        entry = {
+            "msg_id": message_id,
+            "user_id": user_id,
+            "text": text.strip(),
+            "time": msg_time,
+        }
+        _msg_cache[group_id].append(entry)
+        logger.debug(
+            f"[NapCat WS] 缓存消息: group={group_id} msg_id={message_id} "
+            f"user={user_id} text={text[:30]}"
+        )
+        await self._cleanup_cache(group_id)
+
+        # ===== 广告检测优先于 FAQ（非斜杠指令消息）=====
+        is_ad = False
         if not cmd_handled and text.strip():
+            is_ad = await self._check_text_ad(data, text.strip(), group_id, user_id, message_id)
+
+        # ===== FAQ 自动问答匹配（非广告、非斜杠指令消息）=====
+        faq_handled = False
+        if not is_ad and not cmd_handled and text.strip():
             try:
                 from handlers.semantic_faq import match_faq_async
 
@@ -325,8 +355,8 @@ class NapCatWSClient:
                         logger.warning(f"[NapCat WS] FAQ useless 反馈记录失败: {e}")
                     del _pending_faq_feedback[fb_key]
 
-        # 3. 如果 @ 了小号，处理 AI 聊天 / 自然语言指令 / 统计意图
-        if at_self and not cmd_handled:
+        # 3. 如果 @ 了小号，处理 AI 聊天 / 自然语言指令 / 统计意图（广告消息不回复）
+        if at_self and not cmd_handled and not is_ad:
             try:
                 nl_reply = await self._handle_nl_command_in_ws(pure_text, user_id, group_id)
                 if nl_reply:
@@ -367,26 +397,6 @@ class NapCatWSClient:
                             logger.info(f"[NapCat WS] @AI回复: {ai_reply[:50]}")
                 except Exception as e:
                     logger.warning(f"[NapCat WS] @AI聊天异常: {e}")
-
-        # ===== 消息缓存（无论是否 @ 都执行）=====
-        if group_id not in _msg_cache:
-            _msg_cache[group_id] = []
-        entry = {
-            "msg_id": message_id,
-            "user_id": user_id,
-            "text": text.strip(),
-            "time": msg_time,
-        }
-        _msg_cache[group_id].append(entry)
-        logger.debug(
-            f"[NapCat WS] 缓存消息: group={group_id} msg_id={message_id} "
-            f"user={user_id} text={text[:30]}"
-        )
-        await self._cleanup_cache(group_id)
-
-        # 非@消息：文本广告实时检测（FAQ 已处理则跳过）
-        if not at_self and not faq_handled and text.strip():
-            await self._check_text_ad(data, text.strip(), group_id, user_id, message_id)
 
         # @消息处理完成后返回 True，不再走后续的名片检查和 OCR
         return bool(at_self)
@@ -1088,31 +1098,32 @@ class NapCatWSClient:
         except Exception as e:
             logger.error(f"[NapCat WS] 入群审核异常: {e}", exc_info=True)
 
-    async def _check_text_ad(self, data: dict, text: str, group_id: int, user_id: int, message_id: int):
-        """文本广告实时检测 + 置信度分层 + 撤回/提醒 + 通知"""
+    async def _check_text_ad(self, data: dict, text: str, group_id: int, user_id: int, message_id: int) -> bool:
+        """文本广告实时检测 + 置信度分层 + 撤回/提醒 + 通知
+        返回: True=已检测为广告并处理, False=非广告"""
         try:
             # 过滤自身消息
             if _napcat_self_qq and user_id == _napcat_self_qq:
-                return
+                return False
             # 过滤机器人告警消息
             if any(kw in text for kw in ["广告检测告警", "广告已撤回", "[群管]", "[防刷屏]"]):
-                return
+                return False
             # 最小检测长度
-            if len(text) < 10:
-                return
+            if len(text) < 6:
+                return False
 
             # 管理员/群主跳过
             try:
                 from group_member_store import is_group_admin
                 if is_group_admin(group_id, user_id):
-                    return
+                    return False
             except Exception:
                 pass
             try:
                 from config import settings
                 owner = str(getattr(settings, "QQ_GROUP_OWNER", "") or "")
                 if owner and str(user_id) == owner:
-                    return
+                    return False
             except Exception:
                 pass
 
@@ -1121,7 +1132,7 @@ class NapCatWSClient:
                 from handlers.ad_detector import is_url_whitelisted
                 if is_url_whitelisted(text):
                     logger.info(f"[文本广告] URL白名单放行: user={user_id} text={text[:60]}")
-                    return
+                    return False
             except Exception:
                 pass
 
@@ -1133,7 +1144,7 @@ class NapCatWSClient:
                 from handlers.moderation_store import get_group_config, match_whitelist_words
                 gcfg = get_group_config(group_id).get("config") or {}
                 if gcfg.get("enabled") is False or gcfg.get("ad_enabled") is False:
-                    return
+                    return False
                 ad_warn_score = int(gcfg.get("ad_warn_score", 50) or 50)
                 ad_recall_score = int(gcfg.get("ad_recall_score", 70) or 70)
                 ad_mute_minutes = int(gcfg.get("ad_mute_minutes", 0) or 0)
@@ -1146,7 +1157,7 @@ class NapCatWSClient:
                 wl = _mw(text, group_id)
                 if wl:
                     logger.info(f"[文本广告] 白名单词放行: {wl[:3]} user={user_id}")
-                    return
+                    return False
             except Exception:
                 pass
 
@@ -1167,7 +1178,7 @@ class NapCatWSClient:
             )
 
             if score < ad_warn_score:
-                return  # 未达到警告阈值，放行
+                return False  # 未达到警告阈值，放行
 
             from handlers.ad_detector import summarize_ad_reason
             short_reason = summarize_ad_reason(reason, is_image=False)
@@ -1208,7 +1219,7 @@ class NapCatWSClient:
                         )
                 except Exception:
                     pass
-                return
+                return True
 
             # 高置信（score >= ad_recall_score）：撤回 + 群内告警 + 私聊通知
             from napcat_bridge import get_napcat_bridge
@@ -1216,7 +1227,7 @@ class NapCatWSClient:
             if not napcat.available:
                 await napcat.check_available()
             if not napcat.available:
-                return
+                return True
 
             deleted = await napcat.delete_group_msg(group_id, message_id)
 
@@ -1281,6 +1292,10 @@ class NapCatWSClient:
 
         except Exception as e:
             logger.warning(f"[文本广告] 检测异常: {e}", exc_info=True)
+            return False
+
+        # 高置信检测路径正常结束
+        return True
 
     async def _handle_group_image_ocr(self, data: dict):
         """群图片 OCR 广告审核"""

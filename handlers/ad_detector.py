@@ -28,26 +28,26 @@ CHECK_COOLDOWN = 30   # 命中后静默检查冷却（秒）
 # 广告检测规则：每条规则只给基础分，需要组合才触发
 # 招揽话术类（单独出现不加太多分）
 AD_RULES = [
-    # --- 招揽/收益话术 ---
-    {"pattern": r"(日[入结]|月入|时薪)\s*[\d万亿千百零一两二三四五六七八九十]+", "score": 25, "reason": "高收益话术"},
-    {"pattern": r"(收米|躺赚|暴富|一夜暴富|稳赚不赔)", "score": 30, "reason": "高收益话术"},
-    {"pattern": r"(免费送|免费领|0元|零元购|白嫖)", "score": 20, "reason": "免费诱饵"},
-    {"pattern": r"(投资|理财|基金|股票|币圈).{0,10}(回报|收益|翻倍|保证金)", "score": 30, "reason": "投资话术"},
-    {"pattern": r"(刷单|兼职|代付|跑分|租借|出借)(微信|支付宝|银行卡|账号)", "score": 40, "reason": "黑产话术"},
-    {"pattern": r"(抖音|快手|小红书).{0,10}(日结|兼职|赚钱|副业)", "score": 30, "reason": "平台兼职话术"},
+    # --- 招揽/收益话术（高权重）---
+    {"pattern": r"(日[入结]|月入|时薪|天入)\s*[\d万亿千百零一两二三四五六七八九十]+", "score": 35, "reason": "高收益话术"},
+    {"pattern": r"(收米|躺赚|暴富|一夜暴富|稳赚不赔|一单一结|日结.*[刷兼]|兼职.*日结)", "score": 45, "reason": "高收益话术"},
+    {"pattern": r"(免费送|免费领|0元|零元购|白嫖|免费.*[领送取])", "score": 30, "reason": "免费诱饵"},
+    {"pattern": r"(投资|理财|基金|股票|币圈).{0,10}(回报|收益|翻倍|保证金)", "score": 35, "reason": "投资话术"},
+    {"pattern": r"(刷单|兼职|代付|跑分|租借|出借|租号|出号)(微信|支付宝|银行卡|账号|卡|码)", "score": 50, "reason": "黑产话术"},
+    {"pattern": r"(抖音|快手|小红书).{0,10}(日结|兼职|赚钱|副业|粉丝|点赞)", "score": 40, "reason": "平台兼职话术"},
     
     # --- 引流行为（权重较高）---
-    {"pattern": r"(加[我我]|联系我|私聊我|戳我).{0,5}[@＠]\w{2,}", "score": 35, "reason": "@用户名引流"},
-    {"pattern": r"t\.me/\w{3,}", "score": 30, "reason": "TG链接引流"},
-    {"pattern": r"(进群|加群|拉群|扫码|二维码)", "score": 25, "reason": "引导加群/扫码"},
-    {"pattern": r"(免费|领取|赠送|送你|福利).{0,10}(链接|网址|点击)", "score": 30, "reason": "诱导点击"},
-    {"pattern": r"[@＠]\w{3,}\s*[@＠]\w{3,}", "score": 30, "reason": "连续@多人"},
+    {"pattern": r"(加[我我]|联系我|私聊我|戳我).{0,5}[@＠]\w{2,}", "score": 40, "reason": "@用户名引流"},
+    {"pattern": r"t\.me/\w{3,}", "score": 35, "reason": "TG链接引流"},
+    {"pattern": r"(进群|加群|拉群|扫码|二维码|扫码进群)", "score": 30, "reason": "引导加群/扫码"},
+    {"pattern": r"(免费|领取|赠送|送你|福利).{0,10}(链接|网址|点击|扫码)", "score": 35, "reason": "诱导点击"},
+    {"pattern": r"[@＠]\w{3,}\s*[@＠]\w{3,}", "score": 35, "reason": "连续@多人"},
     
     # --- 商业推广 ---
-    {"pattern": r"(代购|买[卖]|出[售转]|低价|折扣|优惠|促销|特价)", "score": 20, "reason": "商业推广"},
-    {"pattern": r"(接单|派单|做任务|赚外快|副业)", "score": 20, "reason": "疑似兼职"},
-    {"pattern": r"(VX|vx|威信|微[信号]|加v)", "score": 15, "reason": "疑似微信引流"},
-    {"pattern": r"https?://[^\s]{5,}", "score": 15, "reason": "外部链接"},
+    {"pattern": r"(代购|买[卖]|出[售转]|低价|折扣|优惠|促销|特价|白菜价)", "score": 25, "reason": "商业推广"},
+    {"pattern": r"(接单|派单|做任务|赚外快|副业|带单|招代理|代理)", "score": 30, "reason": "疑似兼职"},
+    {"pattern": r"(VX|vx|威信|微[信号]|加v|加微|薇信)", "score": 25, "reason": "疑似微信引流"},
+    {"pattern": r"https?://[^\s]{5,}", "score": 20, "reason": "外部链接"},
 ]
 
 # 推广性简介关键词（配合无意义消息时加分）
@@ -200,8 +200,8 @@ async def ai_detect_ad(text: str, username: str = "", user_bio: str = "", group_
                 break
 
     # 组合加分：高收益话术 + 引流行为 = 明确广告
-    has_income = any(r["score"] >= 25 and ("话术" in r["reason"] or "词库" in r["reason"]) for r in matched_rules)
-    has_redirect = any("引流" in r["reason"] or "链接" in r["reason"] or "加群" in r["reason"] for r in matched_rules)
+    has_income = any(r["score"] >= 25 and ("话术" in r["reason"] or "词库" in r["reason"] or "黑产" in r["reason"] or "兼职" in r["reason"] or "投资" in r["reason"]) for r in matched_rules)
+    has_redirect = any("引流" in r["reason"] or "链接" in r["reason"] or "加群" in r["reason"] or "诱导" in r["reason"] or "扫码" in r["reason"] or "推广" in r["reason"] or "微信" in r["reason"] for r in matched_rules)
     if has_income and has_redirect:
         total_score = max(total_score, 85)
         matched_rules.append({"score": 0, "reason": "高收益+引流组合"})
@@ -242,11 +242,13 @@ async def ai_detect_ad(text: str, username: str = "", user_bio: str = "", group_
                 min(total_score, max(ai_score, 50)) >= SCORE_MUTE,
                 ["词库", "AI"],
             )
-        logger.info(f"[广告检测] 纯词库高分且无AI，降权放行: {total_score} text={text[:40]!r}")
+        # AI不可用时：高分(score>=80)直接拦截，中分降权避免误伤
+        fallback_score = min(total_score, 45) if total_score < 80 else total_score
+        logger.info(f"[广告检测] 纯词库高分且无AI，降权放行: {total_score}->{fallback_score} text={text[:40]!r}")
         return _pack(
-            min(total_score, 45),
+            fallback_score,
             matched_rules[0]["reason"] if matched_rules else "词库命中",
-            False,
+            fallback_score >= SCORE_MUTE,
             ["词库"],
         )
 
