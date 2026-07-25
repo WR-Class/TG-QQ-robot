@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment (contains real API keys and tokens)
+.env
+.env.*
+
+# Database files (runtime data, not source)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# QQ / NapCat runtime data (extremely large + sensitive)
+napcat_qq/
+napcat_config/
+napcat_qrcode.png
+
+# Embedded submodule (not part of this project)
+napcat-docker-source/
+
+# Test scripts (local only)
+test_*.py
+
+# Backups created by Web admin panel
+backups/

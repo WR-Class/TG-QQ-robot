@@ -1,0 +1,230 @@
+# SearXNG 配置文件 - 用于 TGJQR 机器人联网搜索
+# 参考: https://docs.searxng.org/admin/settings/settings_server.html
+
+use_default_settings: true
+
+general:
+  instance_name: "TGJQR Search"
+  debug: false
+  enable_metrics: false
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  favicon_resolver: ""
+  default_lang: "auto"
+  formats:
+    - html
+    - json
+  # 引擎失败后冷却时间（秒），防止频繁重试被 ban
+  ban_time_on_fail: 30
+  max_ban_time_on_fail: 600
+  # 搜索结果不包含图片，节省带宽
+  remove_unsupported_engines: true
+  suspend_backoff: 2
+  max_suspend_time: 600
+  language:
+    default_region: "cn"
+    default_language: "zh-CN"
+
+# DOI 解析器（preferences.py 依赖这些顶层配置）
+default_doi_resolver: "doi.org"
+doi_resolvers:
+  doi.org: "https://doi.org"
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "tgjqr_searxng_secret_key_2026"
+  limiter: false
+  image_proxy: false
+  method: "GET"
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Robots-Tag: noindex, nofollow
+
+ui:
+  static_path: ""
+  templates_path: ""
+  default_theme: simple
+  default_locale: "zh-Hans-CN"
+  theme_args:
+    simple_style: auto
+
+valkey:
+  url: false
+
+outgoing:
+  # 请求超时（国内网络环境需要更长超时）
+  request_timeout: 10.0
+  max_request_timeout: 20.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+  # 使用轮转 User-Agent，减少被检测的概率
+  useragent_random: true
+  # 每个引擎的请求间隔（毫秒），避免触发限流
+  request_delay:
+    baidu: 2.0
+    duckduckgo: 1.0
+
+# 启用国内可访问的搜索引擎（与默认引擎合并）
+engines:
+  # Bing - 国内可访问
+  - name: bing
+    engine: bing
+    shortcut: bi
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: bing images
+    engine: bing_images
+    shortcut: bii
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: bing news
+    engine: bing_news
+    shortcut: bin
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: bing videos
+    engine: bing_videos
+    shortcut: biv
+    base_url: https://cn.bing.com
+    disabled: false
+
+  # DuckDuckGo
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  # Wikipedia
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    display_type: ["infobox"]
+    categories: [general]
+
+  # GitHub
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+    categories: [it]
+
+  # Arch Linux Wiki
+  - name: arch linux wiki
+    engine: archlinux
+    shortcut: al
+
+  # 百度 - 全类别
+  - name: baidu
+    engine: baidu
+    shortcut: bd
+    baidu_category: general
+    categories: [general]
+    disabled: false
+
+  - name: baidu images
+    engine: baidu
+    shortcut: bdi
+    baidu_category: images
+    categories: [images]
+    disabled: false
+
+  - name: baidu kaifa
+    engine: baidu
+    shortcut: bdk
+    baidu_category: it
+    categories: [it]
+    disabled: false
+
+  # 360 搜索
+  - name: 360search
+    engine: 360search
+    shortcut: 360so
+    timeout: 10.0
+    disabled: false
+
+  # ============================================================
+  # 🌐 海外引擎 — 部署到云端服务器时，将 disabled 改为 false 即可启用
+  # ============================================================
+
+  # Google 搜索（部署到海外云服务器后取消注释下方两行）
+  # - name: google
+  #   engine: google
+  #   shortcut: g
+  #   disabled: false
+
+  # Google 图片
+  # - name: google images
+  #   engine: google_images
+  #   shortcut: gi
+  #   disabled: false
+
+  # Google 新闻
+  # - name: google news
+  #   engine: google_news
+  #   shortcut: gn
+  #   disabled: false
+
+  # Google 视频
+  # - name: google videos
+  #   engine: google_videos
+  #   shortcut: gv
+  #   disabled: false
+
+  # Brave 搜索
+  # - name: brave
+  #   engine: brave
+  #   shortcut: br
+  #   disabled: false
+
+  # Startpage（隐私搜索，效果接近 Google）
+  # - name: startpage
+  #   engine: startpage
+  #   shortcut: sp
+  #   disabled: false
+
+  # Wikipedia（英文）
+  # - name: wikipedia
+  #   engine: wikipedia
+  #   shortcut: wp
+  #   disabled: false
+
+  # StackOverflow
+  # - name: stackoverflow
+  #   engine: stackoverflow
+  #   shortcut: so
+  #   disabled: false
+
+  # GitHub
+  # - name: github
+  #   engine: github
+  #   shortcut: gh
+  #   disabled: false
+
+  # YouTube
+  # - name: youtube
+  #   engine: youtube
+  #   shortcut: yt
+  #   disabled: false
+
+  # Reddit
+  # - name: reddit
+  #   engine: reddit
+  #   shortcut: rd
+  #   disabled: false
+
+  # Bilibili
+  # - name: bilibili
+  #   engine: bilibili
+  #   shortcut: bil
+  #   disabled: false

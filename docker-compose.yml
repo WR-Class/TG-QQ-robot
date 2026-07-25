@@ -1,0 +1,81 @@
+services:
+  tgjqr-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tgjqr-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+      - ./web:/app/web
+      - ./web_server.py:/app/web_server.py
+      - ./handlers:/app/handlers
+      - ./napcat_config:/app/napcat/config:ro
+      - ./napcat_config:/app/napcat_config
+      - ./napcat_qq:/app/napcat_qq
+      - ./napcat_ws.py:/app/napcat_ws.py
+      - ./napcat_bridge.py:/app/napcat_bridge.py
+      - ./group_member_store.py:/app/group_member_store.py
+      - ./config.py:/app/config.py
+      # Docker socket for NapCat auto-restart when session goes stale
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DATABASE_PATH=/app/data/bot_data.db
+      - MODERATION_DB_PATH=/app/data/moderation.db
+      - WEB_PORT=58080
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Shanghai
+    ports:
+      - "58080:58080"   # Web 管理后台
+    depends_on:
+      napcat:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+
+  # SearXNG - 开源元搜索引擎（聚合 Bing/百度/DuckDuckGo 等）
+  # 用于 AI 联网搜索，无需任何 API Key
+  searxng:
+    image: searxng/searxng:2025.4.0
+    container_name: searxng
+    restart: unless-stopped
+    volumes:
+      - ./searxng_config:/etc/searxng/:ro
+      - searxng_data:/var/cache/searxng/
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/search"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # NapCat - 基于 NTQQ 的 OneBot11 协议端
+  # 所有 QQ 群管功能（广告检测/撤回/禁言/名片监控/OCR/入群审核）
+  # 以及 @机器人 AI 聊天和自然语言指令，全部通过此服务实现
+  napcat:
+    image: mlikiowa/napcat-docker:3.8.12
+    container_name: napcat
+    restart: unless-stopped
+    ports:
+      - "56099:6099"   # NapCat WebUI（扫码登录用）
+      # 30101 HTTP / 30102 WS 仅容器网络内访问，不对外映射
+    environment:
+      - NAPCAT_UID=0
+      - NAPCAT_GID=0
+      - NAPCAT_ACCOUNT=${NAP_CAT_QQ:-}
+      - NAPCAT_QUICK_PASSWORD_MD5=${NAPCAT_QUICK_PASSWORD_MD5:-}
+    volumes:
+      - ./napcat_qq:/app/.config/QQ
+      - ./napcat_config:/app/napcat/config
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6099"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  searxng_data:

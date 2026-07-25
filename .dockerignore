@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.venv
+venv
+
+# 数据文件（由容器生成，不应打包进镜像）
+data/
+*.db
+*.log
+
+# 环境配置（安全考虑，通过运行时挂载或环境变量传入）
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

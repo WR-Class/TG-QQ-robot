@@ -1,0 +1,4200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TGJQR 管理后台</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   CSS VARIABLES & RESET
+   ============================================================ */
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-card: #12121a;
+  --bg-input: #1a1a2e;
+  --border: #2a2a3e;
+  --text-primary: #e0e0e0;
+  --text-secondary: #888;
+  --accent: #00ff88;
+  --accent-dim: #00cc6a;
+  --blue: #4488ff;
+  --red: #ff4444;
+  --yellow: #ffaa00;
+  --font-mono: 'JetBrains Mono', monospace;
+  --sidebar-width: 220px;
+  --header-height: 48px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a5e; }
+
+/* ============================================================
+   LAYOUT: SIDEBAR + MAIN
+   ============================================================ */
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
+
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: margin-left 0.25s ease;
+  z-index: 100;
+}
+
+.sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width)); }
+
+.sidebar-brand {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+  user-select: none;
+}
+
+.sidebar-brand span { color: var(--text-secondary); font-weight: 400; font-size: 11px; }
+
+.sidebar-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 3px solid transparent;
+  user-select: none;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.nav-item:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }
+
+.nav-item.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: rgba(0,255,136,0.05);
+}
+
+.nav-item .nav-icon { margin-right: 10px; font-size: 14px; width: 18px; text-align: center; }
+
+.nav-section {
+  padding: 14px 16px 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  opacity: 0.6;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.topbar {
+  height: var(--header-height);
+  min-height: var(--header-height);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+}
+
+.topbar-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.topbar-toggle:hover { color: var(--text-primary); border-color: var(--accent); }
+
+.topbar-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.topbar-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-status .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+.topbar-status .dot.ok { background: var(--accent); }
+.topbar-status .dot.err { background: var(--red); }
+
+.content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+/* ============================================================
+   PAGE VISIBILITY
+   ============================================================ */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--bg-primary); }
+
+.btn-danger { border-color: var(--red); color: var(--red); }
+.btn-danger:hover { background: var(--red); color: #fff; }
+
+.btn-blue { border-color: var(--blue); color: var(--blue); }
+.btn-blue:hover { background: var(--blue); color: #fff; }
+
+.btn-sm { padding: 5px 10px; font-size: 11px; }
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ============================================================
+   FORM ELEMENTS
+   ============================================================ */
+.form-group {
+  margin-bottom: 18px;
+}
+
+.form-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 6px;
+}
+
+.form-group label .key-hint {
+  color: var(--text-secondary);
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.form-input,
+.form-textarea,
+.form-select {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-input:focus,
+.form-textarea:focus,
+.form-select:focus { border-color: var(--accent); }
+
+.form-textarea {
+  min-height: 80px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: pointer;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-row .form-input,
+.form-row .form-textarea,
+.form-row .form-select { flex: 1; }
+
+.password-wrap {
+  position: relative;
+}
+
+.password-wrap .form-input { padding-right: 36px; }
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.password-toggle:hover { color: var(--text-primary); }
+
+/* ============================================================
+   TOGGLE SWITCH (pure CSS)
+   ============================================================ */
+.toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+.toggle-track {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 2px;
+  left: 2px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: rgba(0,255,136,0.15);
+  border-color: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+
+.toggle-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+/* ============================================================
+   DASHBOARD
+   ============================================================ */
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.status-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+
+.status-card:hover { border-color: #3a3a5e; }
+
+.status-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.status-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online { background: var(--accent); box-shadow: 0 0 6px rgba(0,255,136,0.4); }
+.status-dot.offline { background: var(--red); box-shadow: 0 0 6px rgba(255,68,68,0.4); }
+.status-dot.warning { background: var(--yellow); box-shadow: 0 0 6px rgba(255,170,0,0.4); }
+
+.status-card-body { font-size: 11px; color: var(--text-secondary); line-height: 1.7; }
+
+.status-card-body .kv { display: flex; justify-content: space-between; }
+.status-card-body .kv .val { color: var(--text-primary); }
+
+/* ============================================================
+   LOG STREAM
+   ============================================================ */
+.log-stream {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.log-stream-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.log-stream-header .log-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.log-body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 3px 14px;
+  font-size: 11px;
+  line-height: 1.6;
+  border-bottom: 1px solid rgba(42,42,62,0.3);
+  transition: background 0.1s;
+}
+
+.log-entry:hover { background: rgba(255,255,255,0.02); }
+
+.log-entry:last-child { border-bottom: none; }
+
+.log-time { color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+.log-level { font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 50px; }
+.log-level.INFO { color: var(--accent); }
+.log-level.WARNING { color: var(--yellow); }
+.log-level.ERROR { color: var(--red); }
+.log-level.DEBUG { color: var(--blue); }
+.log-logger { color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; min-width: 80px; }
+.log-msg { color: var(--text-primary); word-break: break-all; }
+
+/* ============================================================
+   CONFIG SECTIONS
+   ============================================================ */
+.config-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.config-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.5px;
+}
+
+.config-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+
+.config-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   FIELD GROUP (label + input + save button in a row)
+   ============================================================ */
+.field-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.field-label {
+  min-width: 180px;
+  padding-top: 9px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.field-label .key-tag {
+  display: block;
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  font-weight: 300;
+  margin-top: 2px;
+}
+
+.field-control { flex: 1; min-width: 0; }
+
+/* Login overlay */
+.login-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(5, 6, 12, 0.92);
+  align-items: center;
+  justify-content: center;
+}
+.login-overlay.show { display: flex; }
+.login-card {
+  width: min(400px, 92vw);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+}
+.login-card h2 {
+  color: var(--accent);
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+.login-card p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 18px;
+}
+.login-card .form-input { width: 100%; margin-bottom: 12px; }
+.login-card .btn { width: 100%; }
+.login-error { color: var(--red); font-size: 12px; min-height: 18px; margin-bottom: 8px; }
+
+.trend-bars { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.trend-row { display: flex; align-items: center; gap: 10px; font-size: 11px; }
+.trend-row .day { width: 90px; color: var(--text-secondary); }
+.trend-row .bar-wrap { flex: 1; background: var(--bg-input); height: 14px; border-radius: 4px; overflow: hidden; }
+.trend-row .bar { height: 100%; background: linear-gradient(90deg, var(--blue), var(--accent)); min-width: 2px; }
+.trend-row .cnt { width: 40px; text-align: right; color: var(--text-primary); }
+
+.field-save {
+  margin-top: 0;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* ============================================================
+   AD RULES TABLE
+   ============================================================ */
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.rules-table th,
+.rules-table td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.rules-table th {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.rules-table td { color: var(--text-primary); }
+
+.rules-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+.table-scroll { overflow-x: auto; }
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: var(--bg-card, #14141f);
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.stat-card .stat-label { font-size: 12px; opacity: 0.65; margin-bottom: 6px; }
+.stat-card .stat-value { font-size: 22px; font-weight: 700; color: var(--accent, #6c8cff); }
+
+.score-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.score-badge.low { background: rgba(0,255,136,0.15); color: var(--accent); }
+.score-badge.mid { background: rgba(255,170,0,0.15); color: var(--yellow); }
+.score-badge.high { background: rgba(255,68,68,0.15); color: var(--red); }
+
+/* AD test area */
+.ad-test-area {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.ad-test-input { min-height: 100px; }
+
+.ad-test-result {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px;
+  font-size: 12px;
+  min-height: 100px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ad-test-result.has-result { color: var(--text-primary); align-items: flex-start; justify-content: flex-start; }
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  animation: toast-in 0.2s ease, toast-out 0.3s ease 1.7s forwards;
+  pointer-events: auto;
+}
+
+.toast.error { border-color: var(--red); color: var(--red); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; }
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ============================================================
+   LOADING SPINNER
+   ============================================================ */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+  .sidebar { position: fixed; height: 100vh; }
+  .sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width)); }
+  .content { padding: 16px; }
+  .field-row { flex-direction: column; }
+  .field-label { min-width: unset; padding-top: 0; }
+  .field-save { align-self: flex-end; }
+  .status-grid { grid-template-columns: 1fr; }
+  .ad-test-area { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   MODAL / DIALOG
+   ============================================================ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
+}
+.modal-overlay.active { display: flex; }
+
+.modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+.modal-box h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+.modal-box .form-group { margin-bottom: 14px; }
+.modal-box .form-group label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+.modal-box .form-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.modal-box .form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+/* ============================================================
+   AI CHAT STYLES
+   ============================================================ */
+.ai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-msg {
+  display: flex;
+  gap: 10px;
+  max-width: 85%;
+  align-items: flex-start;
+}
+
+.ai-msg-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.ai-msg-ai {
+  align-self: flex-start;
+}
+
+.ai-msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.ai-msg-user .ai-msg-avatar {
+  background: var(--blue);
+  color: #fff;
+}
+
+.ai-msg-ai .ai-msg-avatar {
+  background: var(--accent-dim);
+  color: #000;
+}
+
+.ai-msg-bubble {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.ai-msg-bubble-user {
+  background: var(--blue);
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+
+.ai-msg-bubble-ai {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-bottom-left-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.ai-msg-bubble-ai.typing::after {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  background: var(--accent);
+  margin-left: 4px;
+  animation: ai-blink 0.8s infinite;
+  vertical-align: middle;
+}
+
+@keyframes ai-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+.ai-chat-presets {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+  background: var(--bg-card);
+}
+
+.ai-chat-presets .btn {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.ai-chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+  align-items: center;
+}
+
+.ai-chat-input-area .form-input {
+  height: 36px;
+}
+
+.ai-chat-error {
+  color: var(--red);
+  font-size: 12px;
+  padding: 4px 14px;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOAST CONTAINER
+     ============================================================ -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- LOGIN -->
+<div id="login-overlay" class="login-overlay">
+  <div class="login-card">
+    <h2>TGJQR 管理后台</h2>
+    <p>已启用访问密码，请登录后继续</p>
+    <div class="login-error" id="login-error"></div>
+    <input type="password" class="form-input" id="login-password" placeholder="请输入 WEB_PASSWORD" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-blue" onclick="doLogin()">登录</button>
+  </div>
+</div>
+
+<!-- ============================================================
+     MAIN SHELL (sidebar + content)
+     ============================================================ -->
+<div id="app-shell" class="app-shell" style="display:none">
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-brand">TGJQR <span>v1.0</span></div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">总览</div>
+      <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+        <span class="nav-icon">[>]</span> 仪表盘
+      </div>
+      <div class="nav-section">配置</div>
+      <div class="nav-item" data-page="tg" onclick="navigate('tg')">
+        <span class="nav-icon">[T]</span> Telegram
+      </div>
+      <div class="nav-item" data-page="qq" onclick="navigate('qq')">
+        <span class="nav-icon">[Q]</span> QQ / NapCat
+      </div>
+      <div class="nav-item" data-page="ai" onclick="navigate('ai')">
+        <span class="nav-icon">[A]</span> AI 服务
+      </div>
+      <div class="nav-item" data-page="ad" onclick="navigate('ad')">
+        <span class="nav-icon">[D]</span> 广告检测
+      </div>
+      <div class="nav-section">群管</div>
+      <div class="nav-item" data-page="violations" onclick="navigate('violations')">
+        <span class="nav-icon">[V]</span> 违规记录
+      </div>
+      <div class="nav-item" data-page="lexicon" onclick="navigate('lexicon')">
+        <span class="nav-icon">[L]</span> 词库管理
+      </div>
+      <div class="nav-item" data-page="flood" onclick="navigate('flood')">
+        <span class="nav-icon">[F]</span> 防刷屏
+      </div>
+      <div class="nav-item" data-page="groups" onclick="navigate('groups')">
+        <span class="nav-icon">[G]</span> 多群配置
+      </div>
+      <div class="nav-item" data-page="unmutes" onclick="navigate('unmutes')">
+        <span class="nav-icon">[U]</span> 定时解禁
+      </div>
+      <div class="nav-item" data-page="access" onclick="navigate('access')">
+        <span class="nav-icon">[W]</span> 黑白名单
+      </div>
+      <div class="nav-item" data-page="penalties" onclick="navigate('penalties')">
+        <span class="nav-icon">[P]</span> 处罚记录
+      </div>
+      <div class="nav-item" data-page="qq-ops" onclick="navigate('qq-ops')">
+        <span class="nav-icon">[Q]</span> QQ 操作日志
+      </div>
+      <div class="nav-item" data-page="faq" onclick="navigate('faq')">
+        <span class="nav-icon">[?]</span> FAQ 问答
+      </div>
+      <div class="nav-section">运维</div>
+      <div class="nav-item" data-page="health" onclick="navigate('health')">
+        <span class="nav-icon">[H]</span> 健康监控
+      </div>
+      <div class="nav-item" data-page="appeals" onclick="navigate('appeals')">
+        <span class="nav-icon">[A]</span> 误报管理
+      </div>
+      <div class="nav-item" data-page="ops" onclick="navigate('ops')">
+        <span class="nav-icon">[O]</span> 运营导出
+      </div>
+      <div class="nav-item" data-page="ai-chat" onclick="navigate('ai-chat')">
+        <span class="nav-icon">[C]</span> AI 助手
+      </div>
+    </nav>
+    <div style="padding:12px 14px;border-top:1px solid var(--border);margin-top:auto">
+      <button class="btn btn-sm" style="width:100%" onclick="doLogout()">退出登录</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-area">
+    <header class="topbar">
+      <button class="topbar-toggle" onclick="toggleSidebar()">菜单</button>
+      <div class="topbar-title" id="topbar-title">仪表盘</div>
+      <div class="topbar-right">
+        <div class="topbar-status" title="点击查看健康详情" style="cursor:pointer" onclick="navigate('health')">
+          <div class="dot" id="topbar-dot"></div>
+          <span id="topbar-status-text">连接中...</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- ==================== DASHBOARD ==================== -->
+      <div id="page-dashboard" class="page active">
+        <h2 class="section-title">服务状态</h2>
+        <div class="status-grid" id="status-grid">
+          <!-- filled by JS -->
+        </div>
+
+        <h2 class="section-title">违规趋势（近7天）</h2>
+        <div class="config-section">
+          <div style="position:relative;height:220px">
+            <canvas id="dashboard-trend-canvas"></canvas>
+          </div>
+          <div class="map-actions" style="margin-top:8px">
+            <button class="btn btn-sm" onclick="loadDashboardTrend()">刷新</button>
+            <select id="trend-days" onchange="loadDashboardTrend()" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:13px">
+              <option value="7">近7天</option>
+              <option value="14">近14天</option>
+              <option value="30">近30天</option>
+              <option value="90">近90天</option>
+            </select>
+          </div>
+        </div>
+
+        <h2 class="section-title">最近日志</h2>
+        <div class="log-stream">
+          <div class="log-stream-header">
+            <span>日志流</span>
+            <span class="log-count" id="log-count">加载中...</span>
+          </div>
+          <div class="log-body" id="log-body">
+            <!-- filled by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== TG BOT CONFIG ==================== -->
+      <div id="page-tg" class="page">
+        <h2 class="section-title">Telegram 机器人配置</h2>
+
+        <div id="tg-runtime-box" class="runtime-box">
+          <div class="rt-title">自动识别（来自 Bot API getMe）</div>
+          <div class="rt-row" id="tg-runtime-info">加载中...</div>
+          <div class="map-actions" style="margin-top:10px">
+            <button class="btn btn-sm" onclick="loadRuntimeInfo()">刷新识别</button>
+            <button class="btn btn-sm" onclick="applyTgAdminSelf()">把我自己的 User ID 填入管理员</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">基本设置</div>
+
+          <div class="field-row">
+            <div class="field-label">Bot Token <span class="key-tag">@BotFather → /token</span></div>
+            <div class="field-control">
+              <div class="password-wrap">
+                <input type="password" class="form-input" id="cfg-BOT_TOKEN" data-key="BOT_TOKEN" data-group="tg" data-type="password" placeholder="123456:AA...">
+                <button class="password-toggle" onclick="togglePassword(this)">显示</button>
+              </div>
+              <div class="field-hint">与 Telegram 官方一致，叫 Bot Token。保存后上方会自动显示机器人 @用户名 与 ID。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','BOT_TOKEN')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">管理员 User ID <span class="key-tag">Telegram 用户数字 ID</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-ADMIN_IDS" data-key="ADMIN_IDS" data-group="tg" placeholder="例如 123456789,987654321">
+              <div class="field-hint">不是手机号。可用 @userinfobot 查自己的 ID，多个用英文逗号分隔。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','ADMIN_IDS')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">HTTP 代理 <span class="key-tag">可选</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-PROXY_URL" data-key="PROXY_URL" data-group="tg" placeholder="http://127.0.0.1:7890">
+              <div class="field-hint">服务器访问 Telegram 需要代理时填写，例如 Clash/V2Ray 的 HTTP 端口。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','PROXY_URL')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">数据库路径 <span class="key-tag">一般不用改</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-DATABASE_PATH" data-key="DATABASE_PATH" data-group="tg">
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','DATABASE_PATH')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">群组管理</div>
+
+          <div class="field-row">
+            <div class="field-label">欢迎消息</div>
+            <div class="field-control">
+              <textarea class="form-textarea" id="cfg-WELCOME_MESSAGE" data-key="WELCOME_MESSAGE" data-group="tg"></textarea>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','WELCOME_MESSAGE')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">反垃圾验证时长 <span class="key-tag">秒</span></div>
+            <div class="field-control">
+              <input type="number" class="form-input" id="cfg-ANTISPAM_SECONDS" data-key="ANTISPAM_SECONDS" data-group="tg" min="0">
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','ANTISPAM_SECONDS')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">禁止外部转发 <span class="key-tag">开关</span></div>
+            <div class="field-control">
+              <div class="toggle-wrap">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="cfg-BLOCK_FORWARD" data-key="BLOCK_FORWARD" data-group="tg" data-type="toggle">
+                  <span class="toggle-track"></span>
+                </label>
+                <span class="toggle-label" id="label-BLOCK_FORWARD">false</span>
+              </div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','BLOCK_FORWARD')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">敏感词 <span class="key-tag">逗号分隔</span></div>
+            <div class="field-control">
+              <textarea class="form-textarea" id="cfg-BANNED_WORDS" data-key="BANNED_WORDS" data-group="tg" style="min-height:60px"></textarea>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','BANNED_WORDS')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">验证频道 Chat ID <span class="key-tag">频道数字 ID</span></div>
+            <div class="field-control">
+              <input type="number" class="form-input" id="cfg-VERIFY_CHANNEL_ID" data-key="VERIFY_CHANNEL_ID" data-group="tg">
+              <div class="field-hint">频道的数字 ID（通常为负数）。可把机器人拉进频道后用消息/工具查询。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','VERIFY_CHANNEL_ID')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">验证频道显示名</div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-VERIFY_CHANNEL_TITLE" data-key="VERIFY_CHANNEL_TITLE" data-group="tg">
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','VERIFY_CHANNEL_TITLE')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">自动回复</div>
+          <div class="field-row">
+            <div class="field-label">自动回复规则 <span class="key-tag">JSON</span></div>
+            <div class="field-control">
+              <textarea class="form-textarea" id="cfg-AUTO_REPLY_RULES" data-key="AUTO_REPLY_RULES" data-group="tg" style="min-height:120px"></textarea>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','AUTO_REPLY_RULES')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">定时消息</div>
+          <div class="field-row">
+            <div class="field-label">定时消息 <span class="key-tag">JSON</span></div>
+            <div class="field-control">
+              <textarea class="form-textarea" id="cfg-SCHEDULED_MESSAGES" data-key="SCHEDULED_MESSAGES" data-group="tg" style="min-height:120px"></textarea>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('tg','SCHEDULED_MESSAGES')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-actions">
+          <button class="btn btn-blue" onclick="testConnection('tg')">[测试] Telegram 连接</button>
+        </div>
+      </div>
+
+      <!-- ==================== QQ / NapCat CONFIG ==================== -->
+      <div id="page-qq" class="page">
+        <h2 class="section-title">QQ 机器人 / NapCat 配置</h2>
+
+        <div id="qq-runtime-box" class="runtime-box">
+          <div class="rt-title">自动识别</div>
+          <div class="rt-row" id="qq-runtime-info">加载中...</div>
+          <div class="map-actions" style="margin-top:10px">
+            <button class="btn btn-sm" onclick="loadRuntimeInfo()">刷新识别</button>
+            <button class="btn btn-sm" onclick="fillNotifyFromOwner()">用群主 QQ 填广告通知</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">NapCat 管理号（扫码登录的 QQ 小号）</div>
+          <p class="field-hint" style="margin:0 0 12px 0">用于撤回、禁言、名片还原等管理操作。Docker 默认地址一般不用改。</p>
+
+          <div class="field-row">
+            <div class="field-label">启用 NapCat <span class="key-tag">开关</span></div>
+            <div class="field-control">
+              <div class="toggle-wrap">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="cfg-NAPCAT_ENABLED" data-key="NAPCAT_ENABLED" data-group="napcat" data-type="toggle">
+                  <span class="toggle-track"></span>
+                </label>
+                <span class="toggle-label" id="label-NAPCAT_ENABLED">false</span>
+              </div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('napcat','NAPCAT_ENABLED')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">HTTP API 地址 <span class="key-tag">容器内默认</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-NAPCAT_API_URL" data-key="NAPCAT_API_URL" data-group="napcat" placeholder="http://napcat:30101">
+              <div class="field-hint">Compose 部署保持 <code>http://napcat:30101</code> 即可。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('napcat','NAPCAT_API_URL')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">access_token <span class="key-tag">OneBot 令牌</span></div>
+            <div class="field-control">
+              <div class="password-wrap">
+                <input type="password" class="form-input" id="cfg-NAPCAT_ACCESS_TOKEN" data-key="NAPCAT_ACCESS_TOKEN" data-group="napcat" data-type="password">
+                <button class="password-toggle" onclick="togglePassword(this)">显示</button>
+              </div>
+              <div class="field-hint">与 NapCat OneBot 网络配置里的 token 一致（不是 WebUI 登录 Token）。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('napcat','NAPCAT_ACCESS_TOKEN')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">广告通知 QQ <span class="key-tag">接收私聊告警</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-QQ_AD_NOTIFY_QQ" data-key="QQ_AD_NOTIFY_QQ" data-group="qq" placeholder="你的 QQ 号">
+              <div class="field-hint">广告/违规时向该 QQ 发私聊通知。可与下方「群主 QQ」相同。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('qq','QQ_AD_NOTIFY_QQ')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">群主 QQ <span class="key-tag">备用通知</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-QQ_GROUP_OWNER" data-key="QQ_GROUP_OWNER" data-group="qq" placeholder="群主 QQ 号">
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('qq','QQ_GROUP_OWNER')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">群号映射配置</div>
+          <p class="field-hint" id="group-map-explain" style="margin:0 0 12px 0">
+            用表格配置群标识与真实群号的映射关系。
+          </p>
+
+          <div class="map-editor">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:42%">群标识</th>
+                  <th style="width:38%">真实群号（可从 NapCat 选择）</th>
+                  <th style="width:20%">操作</th>
+                </tr>
+              </thead>
+              <tbody id="group-map-tbody">
+                <tr><td colspan="3">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="map-actions">
+            <button class="btn btn-sm" onclick="addGroupMapRow()">+ 添加一行</button>
+            <button class="btn btn-sm btn-blue" onclick="saveGroupMapFromEditor()">保存对应关系</button>
+            <button class="btn btn-sm" onclick="loadRuntimeInfo()">刷新群列表</button>
+          </div>
+          <textarea class="form-textarea" id="cfg-QQ_GROUP_ID_MAP" data-key="QQ_GROUP_ID_MAP" data-group="qq" style="display:none;min-height:60px"></textarea>
+          <div class="field-hint" style="margin-top:10px">
+            NapCat 小号已加入的群会自动列出。
+          </div>
+        </div>
+
+        <div class="config-actions">
+          <button class="btn btn-blue" onclick="testConnection('qq')">[测试] QQ 连接</button>
+          <button class="btn btn-blue" onclick="testConnection('napcat')">[测试] NapCat</button>
+          <button class="btn" onclick="openNapCatWebUI()">[打开] NapCat 扫码登录</button>
+        </div>
+      </div>
+
+      <!-- ==================== AI CONFIG ==================== -->
+      <div id="page-ai" class="page">
+        <h2 class="section-title">AI 服务配置</h2>
+
+        <div class="config-section">
+          <div class="config-section-title">AI 设置</div>
+
+          <div class="field-row">
+            <div class="field-label">启用 AI 客服 <span class="key-tag">开关</span></div>
+            <div class="field-control">
+              <div class="toggle-wrap">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="cfg-AI_ENABLED" data-key="AI_ENABLED" data-group="ai" data-type="toggle">
+                  <span class="toggle-track"></span>
+                </label>
+                <span class="toggle-label" id="label-AI_ENABLED">false</span>
+              </div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_ENABLED')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">Base URL <span class="key-tag">OpenAI 兼容接口</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-AI_BASE_URL" data-key="AI_BASE_URL" data-group="ai" placeholder="https://api.openai.com">
+              <div class="field-hint">官方 OpenAI 为 https://api.openai.com ；中转站填服务商提供的 Base URL。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_BASE_URL')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">API Key <span class="key-tag">官方名称</span></div>
+            <div class="field-control">
+              <div class="password-wrap">
+                <input type="password" class="form-input" id="cfg-AI_API_KEY" data-key="AI_API_KEY" data-group="ai" data-type="password" placeholder="sk-...">
+                <button class="password-toggle" onclick="togglePassword(this)">显示</button>
+              </div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_API_KEY')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">Model <span class="key-tag">模型名</span></div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="cfg-AI_MODEL" data-key="AI_MODEL" data-group="ai" placeholder="gpt-4o-mini">
+              <div class="field-hint">与服务商控制台中的模型名称一致，例如 gpt-4o-mini。</div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_MODEL')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">系统提示词 <span class="key-tag">多行文本</span></div>
+            <div class="field-control">
+              <textarea class="form-textarea" id="cfg-AI_SYSTEM_PROMPT" data-key="AI_SYSTEM_PROMPT" data-group="ai" style="min-height:100px"></textarea>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_SYSTEM_PROMPT')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">群组触发方式 <span class="key-tag">下拉选择</span></div>
+            <div class="field-control">
+              <select class="form-select" id="cfg-AI_GROUP_TRIGGER" data-key="AI_GROUP_TRIGGER" data-group="ai" data-type="select">
+                <option value="mention">提及 -- 仅 @机器人</option>
+                <option value="reply">回复 -- 回复机器人</option>
+                <option value="all">全部 -- 所有消息</option>
+              </select>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_GROUP_TRIGGER')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">私聊自动回复 <span class="key-tag">开关</span></div>
+            <div class="field-control">
+              <div class="toggle-wrap">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="cfg-AI_PRIVATE_AUTO" data-key="AI_PRIVATE_AUTO" data-group="ai" data-type="toggle">
+                  <span class="toggle-track"></span>
+                </label>
+                <span class="toggle-label" id="label-AI_PRIVATE_AUTO">false</span>
+              </div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_PRIVATE_AUTO')">保存</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">最大上下文数 <span class="key-tag">数字</span></div>
+            <div class="field-control">
+              <input type="number" class="form-input" id="cfg-AI_MAX_CONTEXT" data-key="AI_MAX_CONTEXT" data-group="ai" min="0">
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ai','AI_MAX_CONTEXT')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">广告检测 AI</div>
+
+          <div class="field-row">
+            <div class="field-label">广告检测 AI 密钥 <span class="key-tag">密码（独立通道）</span></div>
+            <div class="field-control">
+              <div class="password-wrap">
+                <input type="password" class="form-input" id="cfg-AD_AI_API_KEY" data-key="AD_AI_API_KEY" data-group="ad" data-type="password">
+                <button class="password-toggle" onclick="togglePassword(this)">显示</button>
+              </div>
+            </div>
+            <button class="btn btn-sm field-save" onclick="saveField('ad','AD_AI_API_KEY')">保存</button>
+          </div>
+        </div>
+
+        <div class="config-actions">
+          <button class="btn btn-blue" onclick="testConnection('ai')">[测试] AI 连接</button>
+        </div>
+      </div>
+
+      <!-- ==================== AD DETECTOR ==================== -->
+      <div id="page-ad" class="page">
+        <h2 class="section-title">广告检测规则</h2>
+
+        <div class="config-section">
+          <div class="config-section-title">阈值设置</div>
+          <table class="rules-table">
+            <thead>
+              <tr><th>级别</th><th>分数范围</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="score-badge low">安全</span></td><td>0 ~ 提醒分以下</td><td>放行</td></tr>
+              <tr><td><span class="score-badge mid">低置信</span></td><td>提醒分 ~ 撤回分</td><td>仅私聊提醒群主，不撤回（可延迟观察）</td></tr>
+              <tr><td><span class="score-badge high">高置信</span></td><td>≥ 撤回分</td><td>撤回 + 群告警；按群配置可额外禁言</td></tr>
+              <tr><td><span class="score-badge low">白名单/开源</span></td><td>—</td><td>GitHub/API key/放行词 直接放行</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">检测规则（来自 ad_detector.py）</div>
+          <table class="rules-table" id="ad-rules-table">
+            <thead>
+              <tr><th>分数</th><th>分类</th><th>匹配模式</th></tr>
+            </thead>
+            <tbody id="ad-rules-body">
+              <!-- filled by JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">通知目标（只读预览）</div>
+          <p class="field-hint" style="margin:0 0 12px 0">修改请到「QQ / NapCat」页。此处仅展示当前生效值。</p>
+
+          <div class="field-row">
+            <div class="field-label">广告通知 QQ</div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="ad-notify-qq" data-key="QQ_AD_NOTIFY_QQ" data-group="qq" readonly>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">群主 QQ</div>
+            <div class="field-control">
+              <input type="text" class="form-input" id="ad-group-owner" data-key="QQ_GROUP_OWNER" data-group="qq" readonly>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field-label">群号映射</div>
+            <div class="field-control">
+              <textarea class="form-textarea" id="ad-group-map" data-key="QQ_GROUP_ID_MAP" data-group="qq" readonly style="min-height:60px"></textarea>
+              <div class="field-hint">在「QQ / NapCat → 群号映射配置」用表格编辑。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">广告检测测试</div>
+          <div class="ad-test-area">
+            <textarea class="form-textarea ad-test-input" id="ad-test-input" placeholder="输入文本以测试广告检测..."></textarea>
+            <div class="ad-test-result" id="ad-test-result">
+              结果将显示在此处...
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="testAdDetection()">[运行] 检测</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== VIOLATIONS ==================== -->
+      <div id="page-violations" class="page">
+        <h2 class="section-title">违规记录</h2>
+        <div class="stats-row" id="viol-stats"></div>
+        <div class="config-section">
+          <div class="config-section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>最近记录</span>
+            <span style="display:flex;gap:8px;align-items:center">
+              <select id="viol-type" class="form-input" style="width:auto;min-width:120px" onchange="loadViolations()">
+                <option value="">全部类型</option>
+                <option value="ad">广告</option>
+                <option value="flood">刷屏</option>
+                <option value="ocr">图片OCR</option>
+                <option value="card">名片</option>
+                <option value="join">入群</option>
+              </select>
+              <button class="btn btn-sm" onclick="loadViolations()">刷新</button>
+            </span>
+          </div>
+          <div class="table-scroll">
+            <table class="rules-table" id="viol-table">
+              <thead>
+                <tr><th>时间</th><th>类型</th><th>群</th><th>用户</th><th>评分</th><th>原因</th><th>动作</th></tr>
+              </thead>
+              <tbody id="viol-tbody"><tr><td colspan="7">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== LEXICON ==================== -->
+      <div id="page-lexicon" class="page">
+        <h2 class="section-title">词库管理</h2>
+        <div class="stats-row" id="lex-stats"></div>
+        <div class="config-section">
+          <div class="config-section-title">添加自定义词</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="flex:2;min-width:140px;margin:0">
+              <label>词条</label>
+              <input id="lex-word" class="form-input" placeholder="至少2个字符">
+            </div>
+            <div class="form-group" style="flex:1;min-width:90px;margin:0">
+              <label>分类</label>
+              <input id="lex-cat" class="form-input" value="广告">
+            </div>
+            <div class="form-group" style="width:90px;margin:0">
+              <label>分数</label>
+              <input id="lex-score" class="form-input" type="number" value="25">
+            </div>
+            <button class="btn btn-blue" onclick="addLexWord()">添加</button>
+            <button class="btn" onclick="reloadLexicon()">重载词库</button>
+          </div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">自定义词列表</div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>ID</th><th>词条</th><th>分类</th><th>分数</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody id="lex-tbody"><tr><td colspan="6">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== FLOOD ==================== -->
+      <div id="page-flood" class="page">
+        <h2 class="section-title">防刷屏</h2>
+        <div class="stats-row" id="flood-stats"></div>
+        <div class="config-section">
+          <div class="config-section-title">全局默认阈值（多群配置可覆盖）</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">
+            <div class="form-group" style="margin:0"><label>1秒上限</label><input id="f-rps" class="form-input" type="number"></div>
+            <div class="form-group" style="margin:0"><label>1分钟上限</label><input id="f-rpm" class="form-input" type="number"></div>
+            <div class="form-group" style="margin:0"><label>1小时上限</label><input id="f-rph" class="form-input" type="number"></div>
+            <div class="form-group" style="margin:0"><label>禁言分钟</label><input id="f-mute" class="form-input" type="number"></div>
+            <div class="form-group" style="margin:0"><label>重复窗口(秒)</label><input id="f-rw" class="form-input" type="number"></div>
+            <div class="form-group" style="margin:0"><label>重复次数</label><input id="f-rl" class="form-input" type="number"></div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-blue" onclick="saveFlood()">保存全局阈值</button>
+            <button class="btn" onclick="loadFlood()">刷新</button>
+          </div>
+          <p style="margin-top:10px;opacity:.65;font-size:12px">说明：此处改的是 qq-bot 进程内全局默认；各群独立值请到「多群配置」。</p>
+        </div>
+      </div>
+
+      <!-- ==================== GROUPS ==================== -->
+      <div id="page-groups" class="page">
+        <h2 class="section-title">多群配置</h2>
+        <div class="config-section">
+          <div class="config-section-title">新建 / 更新群配置</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">
+            <div class="form-group" style="margin:0"><label>群号 *</label><input id="g-id" class="form-input" placeholder="1095459959"></div>
+            <div class="form-group" style="margin:0"><label>备注名</label><input id="g-title" class="form-input" placeholder="主群"></div>
+            <div class="form-group" style="margin:0"><label>总开关</label>
+              <select id="g-enabled" class="form-input"><option value="true">开启</option><option value="false">关闭</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>广告检测</label>
+              <select id="g-ad" class="form-input"><option value="true">开启</option><option value="false">关闭</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>OCR</label>
+              <select id="g-ocr" class="form-input"><option value="true">开启</option><option value="false">关闭</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>防刷屏</label>
+              <select id="g-flood" class="form-input"><option value="true">开启</option><option value="false">关闭</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>入群审核</label>
+              <select id="g-join" class="form-input"><option value="true">开启</option><option value="false">关闭</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>名片监控</label>
+              <select id="g-card" class="form-input"><option value="true">开启</option><option value="false">关闭</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>秒上限</label><input id="g-rps" class="form-input" type="number" placeholder="5"></div>
+            <div class="form-group" style="margin:0"><label>分上限</label><input id="g-rpm" class="form-input" type="number" placeholder="20"></div>
+            <div class="form-group" style="margin:0"><label>时上限</label><input id="g-rph" class="form-input" type="number" placeholder="240"></div>
+            <div class="form-group" style="margin:0"><label>刷屏禁言(分)</label><input id="g-fmute" class="form-input" type="number" placeholder="10"></div>
+            <div class="form-group" style="margin:0"><label>提醒分(低置信)</label><input id="g-adwarn" class="form-input" type="number" placeholder="50"></div>
+            <div class="form-group" style="margin:0"><label>处理分阈值</label><input id="g-adscore" class="form-input" type="number" placeholder="50"></div>
+            <div class="form-group" style="margin:0"><label>撤回分(高置信)</label><input id="g-adrecall" class="form-input" type="number" placeholder="70"></div>
+            <div class="form-group" style="margin:0"><label>广告额外禁言(分)</label><input id="g-admute" class="form-input" type="number" placeholder="0"></div>
+            <div class="form-group" style="margin:0"><label>延迟观察(秒)</label><input id="g-delay" class="form-input" type="number" placeholder="30"></div>
+            <div class="form-group" style="margin:0"><label>上下文减分</label><input id="g-ctxdeduct" class="form-input" type="number" placeholder="30"></div>
+            <div class="form-group" style="margin:0"><label>入群欢迎</label>
+              <select id="g-welcome" class="form-input"><option value="false">关闭</option><option value="true">开启</option></select>
+            </div>
+            <div class="form-group" style="margin:0;grid-column:1/-1"><label>欢迎语</label>
+              <input id="g-welcome-text" class="form-input" placeholder="欢迎入群！可用 {qq} {group}">
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-blue" onclick="saveGroupCfg()">保存群配置</button>
+            <button class="btn" onclick="loadGroups()">刷新列表</button>
+          </div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">已配置群</div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>群号</th><th>备注</th><th>开关</th><th>刷屏 秒/分/时</th><th>广告分</th><th>操作</th></tr></thead>
+              <tbody id="groups-tbody"><tr><td colspan="6">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== UNMUTES ==================== -->
+      <div id="page-unmutes" class="page">
+        <h2 class="section-title">定时解禁</h2>
+        <div class="config-section">
+          <div class="config-section-title" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <span>待解禁任务</span>
+            <span style="display:flex;gap:8px">
+              <button class="btn btn-sm" onclick="processUnmutes()">立即处理到期</button>
+              <button class="btn btn-sm" onclick="loadUnmutes()">刷新</button>
+            </span>
+          </div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>ID</th><th>群</th><th>用户</th><th>解禁时间</th><th>原因</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody id="unmute-tbody"><tr><td colspan="7">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">手动添加计划</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0"><label>群号</label><input id="u-gid" class="form-input" placeholder="1095459959"></div>
+            <div class="form-group" style="margin:0"><label>QQ号</label><input id="u-uid" class="form-input" placeholder="123456"></div>
+            <div class="form-group" style="margin:0"><label>秒后解禁</label><input id="u-sec" class="form-input" type="number" value="600"></div>
+            <div class="form-group" style="margin:0"><label>原因</label><input id="u-reason" class="form-input" value="手动"></div>
+            <button class="btn btn-blue" onclick="addUnmute()">添加</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== ACCESS LIST ==================== -->
+      <div id="page-access" class="page">
+        <h2 class="section-title">黑白名单</h2>
+        <div class="config-section">
+          <div class="config-section-title">添加规则</div>
+          <p class="field-hint" style="margin:0 0 12px 0">白名单用户跳过审核；黑名单用户/关键词命中后走处罚阶梯（警告→短禁→长禁→踢出）。群号填 0 表示全局。</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;align-items:end">
+            <div class="form-group" style="margin:0"><label>类型</label>
+              <select id="acc-scope" class="form-input"><option value="whitelist">白名单</option><option value="blacklist">黑名单</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>对象</label>
+              <select id="acc-type" class="form-input"><option value="user">用户QQ</option><option value="word">关键词</option></select>
+            </div>
+            <div class="form-group" style="margin:0"><label>值</label><input id="acc-id" class="form-input" placeholder="QQ号或关键词"></div>
+            <div class="form-group" style="margin:0"><label>群号(0=全局)</label><input id="acc-gid" class="form-input" type="number" value="0"></div>
+            <div class="form-group" style="margin:0"><label>备注</label><input id="acc-note" class="form-input" placeholder="可选"></div>
+            <button class="btn btn-blue" onclick="addAccessItem()">添加</button>
+          </div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">当前列表 <button class="btn btn-sm" style="margin-left:8px" onclick="loadAccess()">刷新</button></div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>ID</th><th>范围</th><th>类型</th><th>值</th><th>群</th><th>备注</th><th>时间</th><th>操作</th></tr></thead>
+              <tbody id="access-tbody"><tr><td colspan="8">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== PENALTIES ==================== -->
+      <div id="page-penalties" class="page">
+        <h2 class="section-title">处罚阶梯记录</h2>
+        <div class="config-section">
+          <div class="config-section-title">阶梯规则</div>
+          <div id="penalty-ladder" class="field-hint">警告 → 禁言10分钟 → 禁言1小时 → 踢出</div>
+          <div style="margin-top:10px"><button class="btn btn-sm" onclick="loadPenalties()">刷新</button></div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">用户处罚状态</div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>群</th><th>用户</th><th>等级</th><th>次数</th><th>最近动作</th><th>原因</th><th>更新</th><th>操作</th></tr></thead>
+              <tbody id="penalty-tbody"><tr><td colspan="8">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== QQ 操作日志 ==================== -->
+      <div id="page-qq-ops" class="page">
+        <h2 class="section-title">QQ 群管操作日志</h2>
+
+        <div class="config-section">
+          <div class="config-section-title">统计概览</div>
+          <div class="status-grid" id="qq-ops-stats" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+            <div class="status-card"><div class="sc-value" id="qq-ops-count">-</div><div class="sc-label">近 24h 操作</div></div>
+            <div class="status-card"><div class="sc-value" id="qq-vio-count">-</div><div class="sc-label">近 24h 违规</div></div>
+            <div class="status-card"><div class="sc-value" id="qq-pending-ocr">-</div><div class="sc-label">待审核图片</div></div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">操作筛选</div>
+          <div class="filter-row" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+            <div class="form-group" style="margin-bottom:0;min-width:140px">
+              <label>操作类型</label>
+              <select class="form-select" id="qq-ops-filter-type">
+                <option value="">全部</option>
+                <option value="recall">撤回</option>
+                <option value="mute">禁言</option>
+                <option value="alert">提醒</option>
+              </select>
+            </div>
+            <button class="btn btn-sm btn-blue" onclick="loadQQOps()">查询</button>
+            <button class="btn btn-sm" onclick="loadQQOps(true)">刷新</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">操作记录</div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>时间</th><th>群号</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
+              <tbody id="qq-ops-tbody"><tr><td colspan="5">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== FAQ ==================== -->
+      <div id="page-faq" class="page">
+        <h2 class="section-title">FAQ 问答库</h2>
+
+        <div class="config-section">
+          <div class="config-section-title">添加 FAQ 条目</div>
+          <div class="rule-form" style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;align-items:end">
+            <div class="form-group" style="margin-bottom:0">
+              <label>触发关键词</label>
+              <input class="form-input" id="faq-new-keyword" placeholder="如: 价格" />
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>标准问题（语义匹配用）</label>
+              <input class="form-input" id="faq-new-question" placeholder="如: 产品价格是多少？" />
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>回复内容</label>
+              <input class="form-input" id="faq-new-answer" placeholder="回复内容" />
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>匹配方式</label>
+              <select class="form-select" id="faq-new-match-type">
+                <option value="keyword">关键词匹配</option>
+                <option value="semantic">语义匹配</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>作用群组</label>
+              <input class="form-input" id="faq-new-group" type="number" placeholder="0=全局" value="0" />
+            </div>
+            <button class="btn btn-blue" onclick="addFAQ()">添加</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>FAQ 条目列表</span>
+            <span style="display:flex;gap:8px;align-items:center">
+              <input class="form-input" id="faq-search" placeholder="搜索关键词/问题..." style="width:200px;padding:4px 8px;font-size:13px" />
+              <button class="btn btn-sm" onclick="loadFAQ()">搜索</button>
+              <button class="btn btn-sm" onclick="loadFAQ()">刷新</button>
+            </span>
+          </div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>ID</th><th>关键词</th><th>标准问题</th><th>回复内容</th><th>匹配方式</th><th>群组</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody id="faq-tbody"><tr><td colspan="8">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">测试 FAQ 匹配</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="form-input" id="faq-test-text" placeholder="输入测试文本..." style="flex:1;min-width:200px" />
+            <button class="btn btn-sm btn-blue" onclick="testFAQ()">测试匹配</button>
+          </div>
+          <div id="faq-test-result" style="margin-top:8px;padding:8px 12px;border-radius:6px;display:none"></div>
+        </div>
+      </div>
+
+      <!-- ==================== HEALTH ==================== -->
+      <div id="page-health" class="page">
+        <h2 class="section-title">健康监控</h2>
+
+        <div class="status-grid" id="health-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+          <!-- filled by JS -->
+        </div>
+
+        <div class="runtime-box">
+          <div class="rt-title">NapCat 实时探测</div>
+          <div class="rt-row" id="health-probe">点击刷新...</div>
+          <div class="map-actions" style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-sm btn-blue" id="btn-health-probe" onclick="loadHealthProbe()">立即探测</button>
+            <button class="btn btn-sm" onclick="openNapCatWebUI()">打开 NapCat 扫码</button>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">系统资源趋势</div>
+          <div style="position:relative;height:200px">
+            <canvas id="health-resource-canvas"></canvas>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">健康事件</div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead><tr><th>时间</th><th>组件</th><th>状态</th><th>详情</th><th>已通知</th></tr></thead>
+              <tbody id="health-tbody"><tr><td colspan="5">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== APPEALS (误报管理) ==================== -->
+      <div id="page-appeals" class="page">
+        <h2 class="section-title">误报管理</h2>
+        <div class="config-section">
+          <div class="config-section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>违规记录 - 误报申诉</span>
+            <span style="display:flex;gap:8px;align-items:center">
+              <input id="appeals-group-filter" class="form-input" placeholder="群号筛选" style="width:auto;min-width:120px" />
+              <select id="appeals-type-filter" class="form-input" style="width:auto;min-width:120px">
+                <option value="">全部类型</option>
+                <option value="ad">广告</option>
+                <option value="flood">刷屏</option>
+                <option value="ocr">图片OCR</option>
+                <option value="card">名片</option>
+                <option value="join">入群</option>
+              </select>
+              <button class="btn btn-sm" onclick="loadAppeals(0)">筛选</button>
+              <button class="btn btn-sm" onclick="loadAppeals(_appealsOffset)">刷新</button>
+            </span>
+          </div>
+          <div class="table-scroll">
+            <table class="rules-table">
+              <thead>
+                <tr><th>时间</th><th>群号</th><th>用户</th><th>类型</th><th>评分</th><th>原因</th><th>操作</th></tr>
+              </thead>
+              <tbody id="appeals-tbody"><tr><td colspan="7">加载中...</td></tr></tbody>
+            </table>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px">
+            <span id="appeals-info" style="font-size:11px;color:var(--text-secondary)">-</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sm" id="appeals-prev" onclick="appealsPrevPage()" disabled>上一页</button>
+              <button class="btn btn-sm" id="appeals-next" onclick="appealsNextPage()">下一页</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== OPS ==================== -->
+      <div id="page-ops" class="page">
+        <h2 class="section-title">运营导出 / 备份</h2>
+        <div class="config-section">
+          <div class="config-section-title">违规趋势（近7天）</div>
+          <div id="trend-chart" class="trend-bars">加载中...</div>
+          <div class="map-actions" style="margin-top:10px">
+            <button class="btn btn-sm" onclick="loadTrend()">刷新趋势</button>
+            <button class="btn btn-sm btn-blue" onclick="exportViolations()">导出违规 CSV</button>
+          </div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">配置备份</div>
+          <p class="field-hint" style="margin:0 0 10px 0">导出 .env + 群配置 + 映射学习 + 黑白名单 + 自定义词。恢复会覆盖对应数据，请谨慎。</p>
+          <div class="map-actions">
+            <button class="btn btn-sm btn-blue" onclick="backupConfig()">导出备份 JSON</button>
+            <label class="btn btn-sm" style="cursor:pointer">导入备份
+              <input type="file" accept="application/json,.json" style="display:none" onchange="restoreConfig(this)">
+            </label>
+          </div>
+          <pre id="backup-preview" style="margin-top:12px;max-height:200px;overflow:auto;background:var(--bg-input);padding:10px;border-radius:6px;font-size:11px;color:var(--text-secondary)"></pre>
+        </div>
+      </div>
+
+      <!-- ==================== AI CHAT (AI 助手) ==================== -->
+      <div id="page-ai-chat" class="page">
+        <h2 class="section-title">AI 助手</h2>
+        <div class="config-section" style="display:flex;flex-direction:column;height:calc(100vh - 180px);min-height:400px;padding:0;overflow:hidden">
+          <!-- 消息列表区域 -->
+          <div id="ai-chat-messages" class="ai-chat-messages">
+            <div class="ai-msg ai-msg-ai">
+              <div class="ai-msg-avatar">AI</div>
+              <div class="ai-msg-bubble ai-msg-bubble-ai">你好！我是管理后台 AI 助手。你可以向我咨询系统运行状态、违规数据分析、规则优化建议等问题。</div>
+            </div>
+          </div>
+          <!-- 预设问题快捷按钮 -->
+          <div class="ai-chat-presets">
+            <button class="btn btn-sm" onclick="aiChatPreset('分析最近的误报原因')">分析最近的误报原因</button>
+            <button class="btn btn-sm" onclick="aiChatPreset('建议优化哪些检测规则')">建议优化哪些检测规则</button>
+            <button class="btn btn-sm" onclick="aiChatPreset('查看违规趋势')">查看违规趋势</button>
+            <button class="btn btn-sm" onclick="aiChatPreset('系统当前运行状态如何')">系统当前运行状态如何</button>
+          </div>
+          <!-- 输入区域 -->
+          <div class="ai-chat-input-area">
+            <input id="ai-chat-input" class="form-input" placeholder="输入消息..." style="flex:1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiChatSend()}" />
+            <button class="btn btn-sm" id="ai-chat-send-btn" onclick="aiChatSend()">发送</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main-area -->
+</div><!-- /app-shell -->
+
+<!-- ============================================================
+     JAVASCRIPT
+     ============================================================ -->
+<script>
+/* ============================================================
+   STATE
+   ============================================================ */
+let authToken = localStorage.getItem('tgjqr_admin_token') || '';
+let currentPage = 'dashboard';
+let statusInterval = null;
+let logInterval = null;
+
+const API_BASE = '';
+
+/* ============================================================
+   AD RULES (hardcoded from ad_detector.py)
+   ============================================================ */
+const AD_RULES = [
+  { pattern: '(daily|month|hourly)\\s*[\\d万亿]+', score: 25, reason: '高收入声称' },
+  { pattern: '(收米|躺赚|暴富|一夜暴富|稳赚不赔)', score: 30, reason: '高收入声称' },
+  { pattern: '(免费送|免费领|0元|零元购|白嫖)', score: 20, reason: '免费诱饵' },
+  { pattern: '(投资|理财|基金|股票|币圈).{0,10}(回报|收益|翻倍|保证金)', score: 30, reason: '投资推销' },
+  { pattern: '(刷单|兼职|代付|跑分|租借|出借)(微信|支付宝|银行卡|账号)', score: 40, reason: '黑产推销' },
+  { pattern: '(抖音|快手|小红书).{0,10}(日结|兼职|赚钱|副业)', score: 30, reason: '平台兼职推销' },
+  { pattern: '(加[我我]|联系我|私聊我|戳我).{0,5}[@＠]\\w{2,}', score: 35, reason: '@提及引流' },
+  { pattern: 't\\.me/\\w{3,}', score: 30, reason: 'TG 链接引流' },
+  { pattern: '(进群|加群|拉群|扫码|二维码)', score: 25, reason: '群/二维码引流' },
+  { pattern: '(免费|领取|赠送|送你|福利).{0,10}(链接|网址|点击)', score: 30, reason: '点击诱饵' },
+  { pattern: '[@＠]\\w{3,}\\s*[@＠]\\w{3,}', score: 30, reason: '多提及刷屏' },
+  { pattern: '(代购|买[卖]|出[售转]|低价|折扣|优惠|促销|特价)', score: 20, reason: '商业推广' },
+  { pattern: '(接单|派单|做任务|赚外快|副业)', score: 20, reason: '疑似兼职' },
+  { pattern: '(VX|vx|威信|微[信号]|加v)', score: 15, reason: '微信引流' },
+  { pattern: 'https?://[^\\s]{5,}', score: 15, reason: '外部链接' },
+];
+
+/* ============================================================
+   INIT
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  populateAdRules();
+  checkAuth();
+});
+
+/* ============================================================
+   AUTH
+   ============================================================ */
+async function checkAuth() {
+  try {
+    const st = await fetch(API_BASE + '/api/auth/status').then(r => r.json()).catch(() => ({ auth_required: false }));
+    if (st.auth_required) {
+      if (!authToken) {
+        showLoginOnly();
+        return;
+      }
+      const probe = await fetch(API_BASE + '/api/config', { headers: getHeaders() });
+      if (probe.status === 401) {
+        authToken = '';
+        localStorage.removeItem('tgjqr_admin_token');
+        showLoginOnly();
+        const err = document.getElementById('login-error');
+        if (err) err.textContent = '登录已失效，请重新输入密码';
+        return;
+      }
+      if (probe.ok) {
+        const data = await probe.json();
+        populateConfigFields(data);
+      }
+    } else {
+      const resp = await fetch(API_BASE + '/api/config', { headers: getHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        populateConfigFields(data);
+      }
+    }
+    showApp();
+    loadAllData();
+    startAutoRefresh();
+  } catch (e) {
+    showApp();
+    showToast('API 无法访问: ' + e.message, true);
+  }
+}
+
+function showLoginOnly() {
+  const shell = document.getElementById('app-shell');
+  if (shell) shell.style.display = 'none';
+  const ov = document.getElementById('login-overlay');
+  if (ov) ov.classList.add('show');
+  const inp = document.getElementById('login-password');
+  if (inp) setTimeout(() => inp.focus(), 50);
+}
+
+function showApp() {
+  const ov = document.getElementById('login-overlay');
+  if (ov) ov.classList.remove('show');
+  const shell = document.getElementById('app-shell');
+  if (shell) shell.style.display = 'flex';
+}
+
+async function doLogin() {
+  const pwd = (document.getElementById('login-password') || {}).value || '';
+  const err = document.getElementById('login-error');
+  if (err) err.textContent = '';
+  try {
+    const resp = await fetch(API_BASE + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    const data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) {
+      if (err) err.textContent = data.detail || '密码错误';
+      return;
+    }
+    authToken = data.token || pwd;
+    localStorage.setItem('tgjqr_admin_token', authToken);
+    showApp();
+    loadAllData();
+    startAutoRefresh();
+    showToast('登录成功');
+  } catch (e) {
+    if (err) err.textContent = e.message;
+  }
+}
+
+function doLogout() {
+  authToken = '';
+  localStorage.removeItem('tgjqr_admin_token');
+  if (statusInterval) clearInterval(statusInterval);
+  if (logInterval) clearInterval(logInterval);
+  showLoginOnly();
+  showToast('已退出登录');
+}
+
+/* ============================================================
+   HEADERS
+   ============================================================ */
+function getHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (authToken) h['X-Admin-Token'] = authToken;
+  return h;
+}
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+function navigate(page) {
+  currentPage = page;
+
+  // Hide all pages, show target
+  document.querySelectorAll('.content .page').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('page-' + page);
+  if (target) target.classList.add('active');
+
+  // Highlight nav item
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const navItem = document.querySelector('.nav-item[data-page="' + page + '"]');
+  if (navItem) navItem.classList.add('active');
+
+  // Update topbar title
+  const titles = {
+    dashboard: '仪表盘',
+    tg: 'Telegram 机器人配置',
+    qq: 'QQ / NapCat',
+    ai: 'AI 服务配置',
+    ad: '广告检测',
+    violations: '违规记录',
+    lexicon: '词库管理',
+    flood: '防刷屏',
+    groups: '多群配置',
+    unmutes: '定时解禁',
+    access: '黑白名单',
+    penalties: '处罚记录',
+    health: '健康监控',
+    appeals: '误报管理',
+    ops: '运营导出',
+    'qq-ops': 'QQ 操作日志',
+    faq: 'FAQ 问答库',
+    'ai-chat': 'AI 助手'
+  };
+  document.getElementById('topbar-title').textContent = titles[page] || page;
+
+  // Auto-load moderation panels
+  if (page === 'violations' && typeof loadViolations === 'function') loadViolations();
+  if (page === 'lexicon' && typeof loadLexicon === 'function') loadLexicon();
+  if (page === 'flood' && typeof loadFlood === 'function') loadFlood();
+  if (page === 'groups' && typeof loadGroups === 'function') loadGroups();
+  if (page === 'unmutes' && typeof loadUnmutes === 'function') loadUnmutes();
+  if (page === 'access' && typeof loadAccess === 'function') loadAccess();
+  if (page === 'penalties' && typeof loadPenalties === 'function') loadPenalties();
+  if (page === 'health' && typeof loadHealth === 'function') loadHealth();
+  if (page === 'appeals' && typeof loadAppeals === 'function') loadAppeals(0);
+  // 加载 Dashboard 趋势图和 Health 资源图
+  if (page === 'dashboard' && typeof loadDashboardTrend === 'function') loadDashboardTrend();
+  if (page === 'health' && typeof loadResourceChart === 'function') loadResourceChart();
+  if (page === 'qq-ops' && typeof loadQQOps === 'function') loadQQOps();
+  if (page === 'faq' && typeof loadFAQ === 'function') loadFAQ();
+  if (page === 'ops') {
+    if (typeof loadStats === 'function') loadStats();
+    if (typeof loadTrend === 'function') loadTrend();
+    if (typeof loadSessionBackups === 'function') loadSessionBackups();
+  }
+  if ((page === 'tg' || page === 'qq') && typeof loadRuntimeInfo === 'function') loadRuntimeInfo();
+
+  // On mobile, collapse sidebar after navigation
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').classList.add('collapsed');
+  }
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('collapsed');
+}
+
+/* ============================================================
+   SHOW PAGE (for login flow)
+   ============================================================ */
+function showPage(name) {
+  if (name === 'login') {
+    showLoginOnly();
+  } else {
+    showApp();
+    navigate(name);
+  }
+}
+
+/* ============================================================
+   DATA LOADING
+   ============================================================ */
+async function loadAllData() {
+  loadStatus();
+  loadLogs();
+  loadConfigForFields();
+  loadRuntimeInfo();
+}
+
+/* ============================================================
+   RUNTIME INFO + GROUP MAP EDITOR
+   ============================================================ */
+let _runtimeCache = null;
+let _napcatGroups = [];
+
+async function loadRuntimeInfo() {
+  const tgEl = document.getElementById('tg-runtime-info');
+  const qqEl = document.getElementById('qq-runtime-info');
+  try {
+    const resp = await fetch(API_BASE + '/api/runtime-info', { headers: getHeaders() });
+    if (resp.status === 401) return;
+    const payload = await resp.json();
+    const d = payload.data || {};
+    _runtimeCache = d;
+    _napcatGroups = (d.napcat && d.napcat.groups) || [];
+
+    if (tgEl) {
+      if (d.tg && d.tg.ok) {
+        tgEl.innerHTML =
+          '<span>机器人：<b>@' + escapeHtml(d.tg.username || '-') + '</b></span>' +
+          '<span>名称：<b>' + escapeHtml(d.tg.first_name || '-') + '</b></span>' +
+          '<span>Bot ID：<b>' + escapeHtml(String(d.tg.id || '-')) + '</b></span>';
+      } else {
+        tgEl.textContent = (d.tg && d.tg.message) ? d.tg.message : '未能识别（请先配置 Bot Token）';
+      }
+    }
+
+    if (qqEl) {
+      const parts = [];
+      const qqOff = d.qq_official || {};
+      const nc = d.napcat || {};
+      parts.push('<span>AppID：<b>' + escapeHtml(qqOff.app_id || '未配置') + '</b></span>');
+      if (nc.ok) {
+        parts.push('<span>NapCat 管理号：<b>' + escapeHtml(String(nc.nickname || '') + '(' + String(nc.user_id || '') + ')') + '</b></span>');
+        parts.push('<span>在线：<b>' + (nc.online === true ? '是' : (nc.online === false ? '否' : '未知')) + '</b></span>');
+        parts.push('<span>已加入群：<b>' + String((_napcatGroups || []).length) + '</b></span>');
+      } else {
+        parts.push('<span>NapCat：<b>' + escapeHtml(nc.message || '未连接') + '</b></span>');
+      }
+      qqEl.innerHTML = parts.join('');
+    }
+
+    const explain = document.getElementById('group-map-explain');
+    if (explain && d.group_map && d.group_map.explain) {
+      explain.textContent = d.group_map.explain;
+    }
+
+renderGroupMapEditor((d.group_map && d.group_map.pairs) || []);
+  } catch (e) {
+    if (tgEl) tgEl.textContent = '识别失败: ' + e.message;
+    if (qqEl) qqEl.textContent = '识别失败: ' + e.message;
+  }
+}
+
+function groupSelectHtml(selected) {
+  const groups = _napcatGroups || [];
+  let html = '<select class="map-gid">';
+  html += '<option value="">-- 选择真实群号 --</option>';
+  let hit = false;
+  for (const g of groups) {
+    const gid = String(g.group_id);
+    const name = g.group_name || '';
+    const sel = selected && String(selected) === gid ? ' selected' : '';
+    if (sel) hit = true;
+    html += '<option value="' + escapeHtml(gid) + '"' + sel + '>' +
+      escapeHtml(name ? (name + ' (' + gid + ')') : gid) + '</option>';
+  }
+  if (selected && !hit) {
+    html += '<option value="' + escapeHtml(String(selected)) + '" selected>' +
+      escapeHtml(String(selected) + '（当前配置）') + '</option>';
+  }
+  html += '<option value="__custom__">手动输入...</option>';
+  html += '</select>';
+  return html;
+}
+
+function renderGroupMapEditor(pairs) {
+  const tbody = document.getElementById('group-map-tbody');
+  if (!tbody) return;
+  const rows = (pairs && pairs.length) ? pairs : [{ group_key: '', group_id: '' }];
+  tbody.innerHTML = rows.map(function (p) {
+    const key = p.group_key || '';
+    const gid = p.group_id != null ? p.group_id : '';
+    return '<tr>' +
+      '<td><input class="map-key" placeholder="群标识" value="' + escapeHtml(String(key)) + '"></td>' +
+      '<td>' + groupSelectHtml(gid) +
+      '<input class="map-gid-custom form-input" style="display:none;margin-top:6px" placeholder="手动输入数字群号" value=""></td>' +
+      '<td><button class="btn btn-sm" type="button" onclick="removeGroupMapRow(this)">删除</button></td>' +
+      '</tr>';
+  }).join('');
+
+  tbody.querySelectorAll('.map-gid').forEach(function (sel) {
+    sel.addEventListener('change', function () {
+      const custom = this.parentElement.querySelector('.map-gid-custom');
+      if (!custom) return;
+      if (this.value === '__custom__') {
+        custom.style.display = 'block';
+        custom.focus();
+      } else {
+        custom.style.display = 'none';
+        custom.value = '';
+      }
+    });
+  });
+  syncGroupMapHidden();
+}
+
+function addGroupMapRow() {
+  const tbody = document.getElementById('group-map-tbody');
+  if (!tbody) return;
+  if (tbody.children.length === 1 && tbody.textContent.indexOf('加载中') >= 0) {
+    tbody.innerHTML = '';
+  }
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input class="map-key" placeholder="群标识" value=""></td>' +
+    '<td>' + groupSelectHtml('') +
+    '<input class="map-gid-custom form-input" style="display:none;margin-top:6px" placeholder="手动输入数字群号" value=""></td>' +
+    '<td><button class="btn btn-sm" type="button" onclick="removeGroupMapRow(this)">删除</button></td>';
+  tbody.appendChild(tr);
+  const sel = tr.querySelector('.map-gid');
+  if (sel) {
+    sel.addEventListener('change', function () {
+      const custom = this.parentElement.querySelector('.map-gid-custom');
+      if (!custom) return;
+      custom.style.display = this.value === '__custom__' ? 'block' : 'none';
+    });
+  }
+}
+
+function removeGroupMapRow(btn) {
+  const tr = btn.closest('tr');
+  if (tr) tr.remove();
+  const tbody = document.getElementById('group-map-tbody');
+  if (tbody && !tbody.children.length) addGroupMapRow();
+  syncGroupMapHidden();
+}
+
+function collectGroupMapPairs() {
+  const tbody = document.getElementById('group-map-tbody');
+  if (!tbody) return [];
+  const pairs = [];
+  tbody.querySelectorAll('tr').forEach(function (tr) {
+    const keyEl = tr.querySelector('.map-key');
+    const sel = tr.querySelector('.map-gid');
+    const custom = tr.querySelector('.map-gid-custom');
+    if (!keyEl) return;
+    const gkey = (keyEl.value || '').trim();
+    let gid = '';
+    if (sel && sel.value === '__custom__') {
+      gid = ((custom && custom.value) || '').trim();
+    } else if (sel) {
+      gid = (sel.value || '').trim();
+    }
+    if (gkey && gid && gid !== '__custom__') {
+      pairs.push(gkey + ':' + gid);
+    }
+  });
+  return pairs;
+}
+
+function syncGroupMapHidden() {
+  const hidden = document.getElementById('cfg-QQ_GROUP_ID_MAP');
+  if (!hidden) return;
+  hidden.value = collectGroupMapPairs().join(',');
+}
+
+async function saveGroupMapFromEditor() {
+  syncGroupMapHidden();
+  const hidden = document.getElementById('cfg-QQ_GROUP_ID_MAP');
+  if (!hidden) return;
+  const value = (hidden.value || '').trim();
+  if (!value) {
+    showToast('请至少填写一行有效对应关系', true);
+    return;
+  }
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/config', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ group: 'qq', key: 'QQ_GROUP_ID_MAP', value: value })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(function () { return {}; });
+      throw new Error(err.detail || '保存失败');
+    }
+    showToast('群对应关系已保存（' + collectGroupMapPairs().length + ' 条）');
+    loadRuntimeInfo();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+function applyTgAdminSelf() {
+  const id = prompt('请输入你的 Telegram User ID（数字，可在 @userinfobot 查看）：');
+  if (!id) return;
+  const n = String(id).trim();
+  if (!/^-?\d+$/.test(n)) {
+    showToast('User ID 应为数字', true);
+    return;
+  }
+  const el = document.getElementById('cfg-ADMIN_IDS');
+  if (!el) return;
+  const cur = (el.value || '').trim();
+  const parts = cur ? cur.split(/[,，\s]+/).filter(Boolean) : [];
+  if (parts.indexOf(n) < 0) parts.push(n);
+  el.value = parts.join(',');
+  showToast('已填入管理员 User ID，请点保存');
+}
+
+function fillNotifyFromOwner() {
+  const owner = document.getElementById('cfg-QQ_GROUP_OWNER');
+  const notify = document.getElementById('cfg-QQ_AD_NOTIFY_QQ');
+  if (!owner || !notify) return;
+  if (!(owner.value || '').trim()) {
+    showToast('请先填写群主 QQ', true);
+    return;
+  }
+  notify.value = owner.value.trim();
+  showToast('已填入广告通知 QQ，请点保存');
+}
+
+async function loadConfigForFields() {
+  try {
+    const resp = await fetch(API_BASE + '/api/config', { headers: getHeaders() });
+    if (resp.status === 401) return;
+    const data = await resp.json();
+    populateConfigFields(data);
+  } catch (e) {
+    console.error('[Config] 加载失败:', e);
+    showToast('配置加载失败: ' + e.message, true);
+  }
+}
+
+async function loadStatus() {
+  try {
+    const resp = await fetch(API_BASE + '/api/status', { headers: getHeaders() });
+    if (resp.status === 401) return;
+    const data = await resp.json();
+    renderStatusCards(data.data);
+    updateTopbarStatus(data.data);
+  } catch (e) {
+    updateTopbarStatus(null);
+  }
+}
+
+async function loadLogs(limit) {
+  limit = limit || 20;
+  try {
+    const resp = await fetch(API_BASE + '/api/logs?limit=' + limit, { headers: getHeaders() });
+    if (resp.status === 401) return;
+    const data = await resp.json();
+    renderLogs(data.data);
+  } catch (e) { /* silent */ }
+}
+
+/* ============================================================
+   AUTO REFRESH
+   ============================================================ */
+function startAutoRefresh() {
+  if (statusInterval) clearInterval(statusInterval);
+  if (logInterval) clearInterval(logInterval);
+
+  statusInterval = setInterval(loadStatus, 10000);
+  logInterval = setInterval(() => loadLogs(20), 5000);
+  setInterval(function() {
+    if (document.getElementById('page-qq-ops') && document.getElementById('page-qq-ops').classList.contains('active')) {
+      loadQQOps(true);
+    }
+    if (document.getElementById('page-health') && document.getElementById('page-health').classList.contains('active')) {
+      loadHealth(true);
+    }
+  }, 15000);
+}
+
+/* ============================================================
+   RENDER: STATUS CARDS
+   ============================================================ */
+function renderStatusCards(status) {
+  const grid = document.getElementById('status-grid');
+  if (!status || !status.services) {
+    grid.innerHTML = '<div class="status-card"><div class="status-card-body">状态数据不可用</div></div>';
+    return;
+  }
+
+  const svc = status.services;
+  const cards = [
+    {
+      title: 'Telegram 机器人',
+      key: 'tg_bot',
+      dot: svc.tg_bot && svc.tg_bot.configured ? 'online' : 'offline',
+      statusText: svc.tg_bot ? svc.tg_bot.status : '未知',
+      kv: [
+        ['已配置', svc.tg_bot ? (svc.tg_bot.configured ? '是' : '否') : '--'],
+      ]
+    },
+    {
+      title: 'NapCat 管理号',
+      key: 'napcat',
+      dot: svc.napcat && svc.napcat.enabled ? 'warning' : 'offline',
+      statusText: svc.napcat ? svc.napcat.status : '未知',
+      kv: [
+        ['api_url', svc.napcat ? (svc.napcat.api_url || '--') : '--'],
+      ]
+    },
+    {
+      title: 'AI',
+      key: 'ai',
+      dot: svc.ai && svc.ai.enabled ? 'online' : (svc.ai && svc.ai.configured ? 'warning' : 'offline'),
+      statusText: svc.ai ? svc.ai.status : '未知',
+      kv: [
+        ['模型', svc.ai ? (svc.ai.model || '--') : '--'],
+        ['地址', svc.ai ? (svc.ai.base_url || '--') : '--'],
+      ]
+    }
+  ];
+
+  grid.innerHTML = cards.map(c => {
+    const kvHtml = c.kv.map(([k, v]) => `<div class="kv"><span>${k}</span><span class="val">${escapeHtml(String(v))}</span></div>`).join('');
+    return `<div class="status-card">
+      <div class="status-card-header">
+        <span class="status-card-title">[${c.title}]</span>
+        <span class="status-dot ${c.dot}"></span>
+      </div>
+      <div class="status-card-body">
+        <div class="kv"><span>状态</span><span class="val">${escapeHtml(c.statusText)}</span></div>
+        ${kvHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateTopbarStatus(status) {
+  const dot = document.getElementById('topbar-dot');
+  const text = document.getElementById('topbar-status-text');
+  if (!status || !status.services) {
+    dot.className = 'dot err';
+    text.textContent = '未连接';
+    return;
+  }
+  const svc = status.services;
+  const anyOnline = (svc.tg_bot && svc.tg_bot.configured) || (svc.ai && svc.ai.enabled);
+  dot.className = anyOnline ? 'dot ok' : 'dot err';
+  text.textContent = anyOnline ? '服务运行中' : '无活跃服务';
+}
+
+/* ============================================================
+   RENDER: LOGS
+   ============================================================ */
+function renderLogs(logs) {
+  const body = document.getElementById('log-body');
+  const count = document.getElementById('log-count');
+  if (!logs || !logs.length) {
+    body.innerHTML = '<div style="padding:14px;color:var(--text-secondary);font-size:11px">暂无日志</div>';
+    count.textContent = '0 条';
+    return;
+  }
+  count.textContent = logs.length + ' 条';
+  body.innerHTML = logs.map(log => {
+    const level = escapeHtml(log.level || 'INFO');
+    return `<div class="log-entry">
+      <span class="log-time">${escapeHtml(log.timestamp || '')}</span>
+      <span class="log-level ${level}">${level}</span>
+      <span class="log-logger">${escapeHtml(log.logger || '')}</span>
+      <span class="log-msg">${escapeHtml(log.message || '')}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   POPULATE CONFIG FIELDS
+   ============================================================ */
+function populateConfigFields(configData) {
+  if (!configData || !configData.data) return;
+  const groups = configData.data;
+
+  for (const groupKey of Object.keys(groups)) {
+    const group = groups[groupKey];
+    for (const item of group.items) {
+      const el = document.getElementById('cfg-' + item.key);
+      if (!el) continue;
+
+      const dataType = el.getAttribute('data-type');
+
+      if (dataType === 'toggle') {
+        // value is "true" or "false" string from API
+        const val = item.value === 'true';
+        el.checked = val;
+        const label = document.getElementById('label-' + item.key);
+        if (label) label.textContent = val ? '已启用' : '已禁用';
+      } else if (dataType === 'select') {
+        el.value = item.value || 'mention';
+      } else if (dataType === 'password') {
+        // Keep masked value in placeholder for reference
+        if (item.value && item.value !== '(未设置)' && item.value !== '***') {
+          el.value = item.value;
+        }
+        // else leave empty -- user will type new value
+      } else {
+        if (item.value && item.value !== '(未设置)') {
+          el.value = item.value;
+        }
+      }
+    }
+  }
+
+  // Also populate ad-page readonly fields
+  const notifyEl = document.getElementById('ad-notify-qq');
+  const ownerEl = document.getElementById('ad-group-owner');
+  const mapEl = document.getElementById('ad-group-map');
+
+  if (groups.qq) {
+    for (const item of groups.qq.items) {
+      if (item.key === 'QQ_AD_NOTIFY_QQ' && notifyEl) notifyEl.value = item.value !== '(未设置)' ? item.value : '';
+      if (item.key === 'QQ_GROUP_OWNER' && ownerEl) ownerEl.value = item.value !== '(未设置)' ? item.value : '';
+      if (item.key === 'QQ_GROUP_ID_MAP' && mapEl) mapEl.value = item.value !== '(未设置)' ? item.value : '';
+    }
+  }
+}
+
+/* ============================================================
+   SAVE CONFIG
+   ============================================================ */
+async function saveField(group, key) {
+  const el = document.getElementById('cfg-' + key);
+  if (!el) { showToast('未找到字段：' + key, true); return; }
+
+  const dataType = el.getAttribute('data-type');
+  let value;
+
+  if (dataType === 'toggle') {
+    value = el.checked;
+  } else if (dataType === 'password') {
+    value = el.value; // save raw
+  } else if (el.tagName === 'SELECT') {
+    value = el.value;
+  } else if (el.type === 'number') {
+    value = parseInt(el.value, 10) || 0;
+  } else {
+    value = el.value;
+  }
+
+  // 定位保存按钮（同 .config-input-wrap 内或当前焦点元素）
+  const btn = (el.closest('.config-input-wrap') && el.closest('.config-input-wrap').querySelector('.field-save')) || document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/config', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ group, key, value })
+    });
+
+    if (resp.status === 401) return;
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: '保存失败' }));
+      showToast('保存失败：' + (err.detail || '未知错误'), true);
+      return;
+    }
+
+    const result = await resp.json();
+    showToast('已保存：' + key);
+
+    // Update password field with masked value from response
+    if (dataType === 'password' && result.value) {
+      el.value = result.value;
+    }
+  } catch (e) {
+    showToast('保存失败：' + e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+/* ============================================================
+   OPEN NAPCAT WEBUI (auto-skip token login)
+   ============================================================ */
+async function openNapCatWebUI() {
+  // 动态获取 WebUI URL，避免硬编码
+  try {
+    const resp = await fetch(API_BASE + '/api/napcat/webui', {
+      headers: authToken ? {'X-Admin-Token': authToken} : {}
+    });
+    const d = await resp.json();
+    if (d.success && d.data) {
+      window.open(d.data.url || 'http://localhost:56099/webui', '_blank');
+      showToast('已打开 NapCat QQ 登录页');
+    } else {
+      showToast('获取 NapCat WebUI 地址失败');
+    }
+  } catch (e) {
+    // 降级：直接打开基础地址
+    window.open('http://localhost:56099/webui', '_blank');
+    showToast('已打开 NapCat QQ 登录页（默认地址）');
+  }
+}
+
+/* ============================================================
+   TEST CONNECTION
+   ============================================================ */
+async function testConnection(type) {
+  const btn = document.activeElement;
+  const originalText = btn ? btn.textContent : '测试连接';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 连接测试中...'; }
+
+  try {
+    const resp = await fetch(API_BASE + '/api/test/connection', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ type })
+    });
+    const result = await resp.json();
+    const d = result.data;
+
+    if (d && d.success) {
+      showToast('[' + type + '] 成功 -- ' + d.message + ' (' + d.latency_ms + 'ms)');
+    } else {
+      showToast('[' + type + '] 失败 -- ' + (d ? d.message : '未知'), true);
+    }
+  } catch (e) {
+    showToast('[' + type + '] 错误：' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+  }
+}
+
+/* ============================================================
+   AD DETECTION TEST (client-side rules only)
+   ============================================================ */
+function testAdDetection() {
+  const text = document.getElementById('ad-test-input').value.trim();
+  const resultEl = document.getElementById('ad-test-result');
+
+  if (!text) {
+    resultEl.innerHTML = '请输入要测试的文本';
+    resultEl.className = 'ad-test-result';
+    return;
+  }
+
+  const textLower = text.toLowerCase();
+  let totalScore = 0;
+  const matched = [];
+
+  for (const rule of AD_RULES) {
+    try {
+      const re = new RegExp(rule.pattern, 'i');
+      if (re.test(textLower)) {
+        matched.push(rule);
+        totalScore += rule.score;
+      }
+    } catch (e) { /* skip invalid patterns */ }
+  }
+
+  // Multi-rule combo bonus
+  if (matched.length >= 3) totalScore = Math.min(100, totalScore + 15);
+
+  const hasIncome = matched.some(r => r.score >= 25 && r.reason.includes('income'));
+  const hasRedirect = matched.some(r => r.reason.includes('redirect') || r.reason.includes('link') || r.reason.includes('gig'));
+  if (hasIncome && hasRedirect) totalScore = Math.max(totalScore, 85);
+
+  let action = '放行';
+  let actionClass = 'low';
+  if (totalScore >= 90) { action = '封禁'; actionClass = 'high'; }
+  else if (totalScore >= 70) { action = '禁言 24H'; actionClass = 'high'; }
+  else if (totalScore >= 50) { action = '警告'; actionClass = 'mid'; }
+
+  const matchHtml = matched.length > 0
+    ? matched.map(r => `<div>[${r.score}] ${escapeHtml(r.reason)}: <code>${escapeHtml(r.pattern)}</code></div>`).join('')
+    : '<div>未匹配到规则</div>';
+
+  resultEl.innerHTML = `
+    <div style="width:100%">
+      <div style="margin-bottom:10px">
+        <span class="score-badge ${actionClass}">${totalScore} / 100</span>
+        <span style="margin-left:10px;font-weight:600;color:var(--${actionClass === 'high' ? 'red' : actionClass === 'mid' ? 'yellow' : 'accent'})">操作：${action}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">匹配到 ${matched.length} 条规则：</div>
+      <div style="font-size:11px;line-height:1.8">${matchHtml}</div>
+    </div>
+  `;
+  resultEl.className = 'ad-test-result has-result';
+}
+
+/* ============================================================
+   POPULATE AD RULES TABLE
+   ============================================================ */
+function populateAdRules() {
+  const tbody = document.getElementById('ad-rules-body');
+  if (!tbody) return;
+
+  tbody.innerHTML = AD_RULES.map(r => {
+    const cls = r.score >= 35 ? 'high' : r.score >= 25 ? 'mid' : 'low';
+    return `<tr>
+      <td><span class="score-badge ${cls}">${r.score}</span></td>
+      <td>${escapeHtml(r.reason)}</td>
+      <td><code style="font-size:10px;color:var(--text-secondary)">${escapeHtml(r.pattern)}</code></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ============================================================
+   TOGGLE HELPERS
+   ============================================================ */
+function togglePassword(btn) {
+  const input = btn.parentElement.querySelector('input');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '隐藏';
+  } else {
+    input.type = 'password';
+    btn.textContent = '显示';
+  }
+}
+
+// Toggle label update on change
+document.addEventListener('change', (e) => {
+  if (e.target.type === 'checkbox' && e.target.getAttribute('data-type') === 'toggle') {
+    const key = e.target.getAttribute('data-key');
+    const label = document.getElementById('label-' + key);
+    if (label) label.textContent = e.target.checked ? '已启用' : '已禁用';
+  }
+});
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+function showToast(msg, isError) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (isError ? ' error' : '');
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  }, 2000);
+}
+
+/* 通用按钮 loading 辅助：设置/恢复按钮状态 */
+function setBtnLoading(btn, loading) {
+  if (!btn) return;
+  if (loading) {
+    if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+  } else {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.originalText || btn.textContent;
+  }
+}
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function boolVal(v) {
+  return String(v) === 'true' || v === true;
+}
+
+function numOr(id, fallback) {
+  const el = document.getElementById(id);
+  if (!el || el.value === '' || el.value == null) return fallback;
+  const n = Number(el.value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/* ============================================================
+   MODERATION PANELS
+   ============================================================ */
+async function loadViolations() {
+  const tbody = document.getElementById('viol-tbody');
+  const statsEl = document.getElementById('viol-stats');
+  if (!tbody) return;
+  try {
+    const vtype = (document.getElementById('viol-type') || {}).value || '';
+    const qs = new URLSearchParams({ limit: '80', offset: '0' });
+    if (vtype) qs.set('vtype', vtype);
+    const [listResp, statsResp] = await Promise.all([
+      fetch(API_BASE + '/api/mod/violations?' + qs.toString(), { headers: getHeaders() }),
+      fetch(API_BASE + '/api/mod/stats?hours=24', { headers: getHeaders() })
+    ]);
+    const list = await listResp.json();
+    const stats = await statsResp.json();
+    // by_type 可能是字典 {ad:5} 或列表 [{vtype:'ad',cnt:5}]
+    let by = {};
+    if (Array.isArray(stats.by_type)) {
+      for (const it of stats.by_type) { by[it.vtype] = it.cnt; }
+    } else if (stats.by_type && typeof stats.by_type === 'object') {
+      by = stats.by_type;
+    }
+    if (statsEl) {
+      statsEl.innerHTML = [
+        ['24h总计', stats.total || 0],
+        ['广告', by.ad || 0],
+        ['刷屏', by.flood || 0],
+        ['OCR', by.ocr || 0],
+        ['名片', by.card || 0],
+        ['入群', by.join || 0]
+      ].map(([k, v]) => `<div class="stat-card"><div class="stat-label">${k}</div><div class="stat-value">${v}</div></div>`).join('');
+    }
+    const items = list.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7">暂无记录</td></tr>';
+      return;
+    }
+    const typeMap = { ad: '广告', flood: '刷屏', ocr: 'OCR', card: '名片', join: '入群', command: '指令' };
+    tbody.innerHTML = items.map(it => `
+      <tr>
+        <td>${escapeHtml(it.created_at_str || '')}</td>
+        <td>${escapeHtml(typeMap[it.vtype] || it.vtype || '')}</td>
+        <td>${it.group_id || '-'}</td>
+        <td>${escapeHtml((it.user_name || '') + (it.user_id ? ' (' + it.user_id + ')' : ''))}</td>
+        <td>${it.score || 0}</td>
+        <td>${escapeHtml(it.reason || '')}</td>
+        <td>${escapeHtml(it.action || '')}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="7">加载失败: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function loadLexicon() {
+  const tbody = document.getElementById('lex-tbody');
+  const statsEl = document.getElementById('lex-stats');
+  if (!tbody) return;
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/lexicon', { headers: getHeaders() });
+    const data = await resp.json();
+    if (statsEl) {
+      statsEl.innerHTML = [
+        ['词库状态', data.available ? '就绪' : '未就绪'],
+        ['总词数', data.word_count || 0],
+        ['自定义词', data.custom_count || 0]
+      ].map(([k, v]) => `<div class="stat-card"><div class="stat-label">${k}</div><div class="stat-value">${v}</div></div>`).join('');
+    }
+    const words = data.custom_words || [];
+    if (!words.length) {
+      tbody.innerHTML = '<tr><td colspan="6">暂无自定义词，可在上方添加</td></tr>';
+      return;
+    }
+    tbody.innerHTML = words.map(w => `
+      <tr>
+        <td>${w.id}</td>
+        <td>${escapeHtml(w.word || '')}</td>
+        <td>${escapeHtml(w.category || '')}</td>
+        <td>${w.score || 0}</td>
+        <td>${w.enabled ? '启用' : '禁用'}</td>
+        <td><button class="btn btn-sm" onclick="deleteLexWord(${w.id})">删除</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">加载失败: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function addLexWord() {
+  const word = (document.getElementById('lex-word') || {}).value || '';
+  const category = (document.getElementById('lex-cat') || {}).value || '广告';
+  const score = numOr('lex-score', 25);
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/lexicon/words', {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ word, category, score })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '添加失败');
+    showToast('已添加词条');
+    document.getElementById('lex-word').value = '';
+    loadLexicon();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function deleteLexWord(id) {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/lexicon/words/' + id, {
+      method: 'DELETE', headers: getHeaders()
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error('删除失败');
+    showToast('已删除');
+    loadLexicon();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function reloadLexicon() {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/lexicon/reload', {
+      method: 'POST', headers: getHeaders()
+    });
+    const data = await resp.json();
+    showToast('词库已重载，共 ' + (data.word_count || 0) + ' 词');
+    loadLexicon();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function loadFlood() {
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/flood', { headers: getHeaders() });
+    const d = await resp.json();
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('f-rps', d.rate_per_second);
+    set('f-rpm', d.rate_per_minute);
+    set('f-rph', d.rate_per_hour);
+    set('f-mute', d.mute_minutes);
+    set('f-rw', d.repeat_window);
+    set('f-rl', d.repeat_limit);
+    const statsEl = document.getElementById('flood-stats');
+    if (statsEl) {
+      statsEl.innerHTML = [
+        ['状态', d.enabled ? '开启' : '关闭'],
+        ['1秒', d.rate_per_second],
+        ['1分钟', d.rate_per_minute],
+        ['1小时', d.rate_per_hour],
+        ['禁言(分)', d.mute_minutes],
+        ['1分钟活跃用户', d.active_users_1m || 0]
+      ].map(([k, v]) => `<div class="stat-card"><div class="stat-label">${k}</div><div class="stat-value">${v}</div></div>`).join('');
+    }
+  } catch (e) {
+    showToast('加载防刷屏失败: ' + e.message, true);
+  }
+}
+
+async function saveFlood() {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const body = {
+      rate_per_second: numOr('f-rps', 5),
+      rate_per_minute: numOr('f-rpm', 20),
+      rate_per_hour: numOr('f-rph', 240),
+      mute_minutes: numOr('f-mute', 10),
+      repeat_window: numOr('f-rw', 120),
+      repeat_limit: numOr('f-rl', 3)
+    };
+    const resp = await fetch(API_BASE + '/api/mod/flood', {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error('保存失败');
+    showToast('全局防刷屏阈值已保存');
+    loadFlood();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function loadGroups() {
+  const tbody = document.getElementById('groups-tbody');
+  if (!tbody) return;
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/groups', { headers: getHeaders() });
+    const data = await resp.json();
+    const items = (data.items || []).filter(x => x.group_id !== 0);
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="6">暂无多群配置（未配置时使用全局默认）</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(it => {
+      const c = it.config || {};
+      return `<tr>
+        <td>${it.group_id}</td>
+        <td>${escapeHtml(it.title || '')}</td>
+        <td>${c.enabled === false ? '关' : '开'} / 广告${c.ad_enabled === false ? '关' : '开'}</td>
+        <td>${c.flood_per_second || '-'}/${c.flood_per_minute || '-'}/${c.flood_per_hour || '-'}</td>
+        <td>${c.ad_mute_score ?? 50}</td>
+        <td>
+          <button class="btn btn-sm" onclick="editGroupCfg(${it.group_id})">编辑</button>
+          <button class="btn btn-sm" onclick="deleteGroupCfg(${it.group_id})">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">加载失败: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function editGroupCfg(gid) {
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/groups/' + gid, { headers: getHeaders() });
+    const data = await resp.json();
+    const c = data.config || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('g-id', data.group_id);
+    set('g-title', data.title || '');
+    set('g-enabled', String(c.enabled !== false));
+    set('g-ad', String(c.ad_enabled !== false));
+    set('g-ocr', String(c.ocr_enabled !== false));
+    set('g-flood', String(c.flood_enabled !== false));
+    set('g-join', String(c.join_audit_enabled !== false));
+    set('g-card', String(c.card_monitor_enabled !== false));
+    set('g-rps', c.flood_per_second ?? 5);
+    set('g-rpm', c.flood_per_minute ?? 20);
+    set('g-rph', c.flood_per_hour ?? 240);
+    set('g-fmute', c.flood_mute_minutes ?? 10);
+    set('g-adscore', c.ad_mute_score ?? 50);
+    set('g-admute', c.ad_mute_minutes ?? 0);
+    showToast('已载入群 ' + gid + ' 配置到表单');
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+async function saveGroupCfg() {
+  const gid = Number((document.getElementById('g-id') || {}).value || 0);
+  if (!gid) { showToast('请填写群号', true); return; }
+  const body = {
+    title: (document.getElementById('g-title') || {}).value || '',
+    config: {
+      enabled: boolVal((document.getElementById('g-enabled') || {}).value),
+      ad_enabled: boolVal((document.getElementById('g-ad') || {}).value),
+      ocr_enabled: boolVal((document.getElementById('g-ocr') || {}).value),
+      flood_enabled: boolVal((document.getElementById('g-flood') || {}).value),
+      join_audit_enabled: boolVal((document.getElementById('g-join') || {}).value),
+      card_monitor_enabled: boolVal((document.getElementById('g-card') || {}).value),
+      flood_per_second: numOr('g-rps', 5),
+      flood_per_minute: numOr('g-rpm', 20),
+      flood_per_hour: numOr('g-rph', 240),
+      flood_mute_minutes: numOr('g-fmute', 10),
+      ad_warn_score: numOr('g-adwarn', 50),
+      ad_mute_score: numOr('g-adscore', 50),
+      ad_recall_score: numOr('g-adrecall', 70),
+      ad_mute_minutes: numOr('g-admute', 0),
+      delay_observe_sec: numOr('g-delay', 30),
+      context_deduct: numOr('g-ctxdeduct', 30),
+      welcome_enabled: boolVal((document.getElementById('g-welcome') || {}).value),
+      welcome_text: (document.getElementById('g-welcome-text') || {}).value || ''
+    }
+  };
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/groups/' + gid, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify(body)
+    });
+    if (!resp.ok) throw new Error('保存失败');
+    showToast('群配置已保存');
+    loadGroups();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function deleteGroupCfg(gid) {
+  if (!confirm('删除群 ' + gid + ' 的独立配置？')) return;
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/groups/' + gid, {
+      method: 'DELETE', headers: getHeaders()
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error('删除失败');
+    showToast('已删除');
+    loadGroups();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function loadUnmutes() {
+  const tbody = document.getElementById('unmute-tbody');
+  if (!tbody) return;
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/unmutes?status=pending', { headers: getHeaders() });
+    const data = await resp.json();
+    const items = data.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7">暂无待解禁任务</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(it => `
+      <tr>
+        <td>${it.id}</td>
+        <td>${it.group_id}</td>
+        <td>${it.user_id}</td>
+        <td>${escapeHtml(it.unmute_at_str || '')}</td>
+        <td>${escapeHtml(it.reason || '')}</td>
+        <td>${escapeHtml(it.status || '')}</td>
+        <td><button class="btn btn-sm" onclick="cancelUnmute(${it.id})">取消</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="7">加载失败: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function addUnmute() {
+  const group_id = Number((document.getElementById('u-gid') || {}).value || 0);
+  const user_id = Number((document.getElementById('u-uid') || {}).value || 0);
+  const mute_seconds = numOr('u-sec', 600);
+  const reason = (document.getElementById('u-reason') || {}).value || '手动';
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/unmutes', {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ group_id, user_id, mute_seconds, reason })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '添加失败');
+    showToast('已添加计划 #' + data.id);
+    loadUnmutes();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function cancelUnmute(id) {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/unmutes/' + id, {
+      method: 'DELETE', headers: getHeaders()
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error('取消失败');
+    showToast('已取消');
+    loadUnmutes();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function processUnmutes() {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/unmutes/process', {
+      method: 'POST', headers: getHeaders()
+    });
+    const data = await resp.json();
+    showToast('已处理 ' + (data.processed || 0) + ' 条到期任务');
+    loadUnmutes();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+/* ---- 黑白名单 / 处罚 / 健康 / 运营 ---- */
+async function loadAccess() {
+  const tbody = document.getElementById('access-tbody');
+  if (!tbody) return;
+  try {
+    const data = await fetch(API_BASE + '/api/mod/access', { headers: getHeaders() }).then(r => r.json());
+    const items = data.items || [];
+    if (!items.length) { tbody.innerHTML = '<tr><td colspan="8">暂无规则</td></tr>'; return; }
+    tbody.innerHTML = items.map(it => '<tr>' +
+      '<td>' + it.id + '</td>' +
+      '<td>' + escapeHtml(it.scope === 'whitelist' ? '白名单' : '黑名单') + '</td>' +
+      '<td>' + escapeHtml(it.target_type === 'user' ? '用户' : '关键词') + '</td>' +
+      '<td>' + escapeHtml(it.target_id) + '</td>' +
+      '<td>' + it.group_id + '</td>' +
+      '<td>' + escapeHtml(it.note || '') + '</td>' +
+      '<td>' + escapeHtml(it.created_at_str || '') + '</td>' +
+      '<td><button class="btn btn-sm" onclick="deleteAccess(' + it.id + ')">删除</button></td>' +
+      '</tr>').join('');
+  } catch (e) { tbody.innerHTML = '<tr><td colspan="8">' + escapeHtml(e.message) + '</td></tr>'; }
+}
+
+async function addAccessItem() {
+  const scope = document.getElementById('acc-scope').value;
+  const target_type = document.getElementById('acc-type').value;
+  const target_id = (document.getElementById('acc-id').value || '').trim();
+  const group_id = parseInt(document.getElementById('acc-gid').value || '0', 10);
+  const note = (document.getElementById('acc-note').value || '').trim();
+  if (!target_id) { showToast('请填写值', true); return; }
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/access', {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ scope: scope, target_type: target_type, target_id: target_id, group_id: group_id, note: note })
+    });
+    const data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '添加失败');
+    showToast('已添加');
+    document.getElementById('acc-id').value = '';
+    loadAccess();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function deleteAccess(id) {
+  if (!confirm('确认删除该规则？')) return;
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    await fetch(API_BASE + '/api/mod/access/' + id, { method: 'DELETE', headers: getHeaders() });
+    showToast('已删除');
+    loadAccess();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function loadPenalties() {
+  const tbody = document.getElementById('penalty-tbody');
+  const ladderEl = document.getElementById('penalty-ladder');
+  try {
+    const data = await fetch(API_BASE + '/api/mod/penalties', { headers: getHeaders() }).then(r => r.json());
+    if (ladderEl && data.ladder) {
+      ladderEl.textContent = data.ladder.map(function (s) { return 'L' + s.level + ' ' + s.label; }).join(' → ');
+    }
+    if (!tbody) return;
+    const items = data.items || [];
+    if (!items.length) { tbody.innerHTML = '<tr><td colspan="8">暂无记录</td></tr>'; return; }
+    tbody.innerHTML = items.map(function (it) {
+      return '<tr>' +
+        '<td>' + it.group_id + '</td><td>' + it.user_id + '</td>' +
+        '<td>L' + it.level + '</td><td>' + it.strike_count + '</td>' +
+        '<td>' + escapeHtml(it.last_action || '') + '</td>' +
+        '<td>' + escapeHtml(it.last_reason || '') + '</td>' +
+        '<td>' + escapeHtml(it.updated_at_str || '') + '</td>' +
+        '<td><button class="btn btn-sm" onclick="resetPenalty(' + it.group_id + ',' + it.user_id + ')">清零</button></td>' +
+        '</tr>';
+    }).join('');
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8">' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function resetPenalty(gid, uid) {
+  if (!confirm('清零该用户处罚等级？')) return;
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    await fetch(API_BASE + '/api/mod/penalties/' + gid + '/' + uid, { method: 'DELETE', headers: getHeaders() });
+    showToast('已清零');
+    loadPenalties();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function loadHealthProbe() {
+  // “立即探测”按钮专用包装：提供即时反馈，禁用按钮防止重复点击
+  const probeEl = document.getElementById('health-probe');
+  const btn = document.getElementById('btn-health-probe');
+  if (probeEl) probeEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 探测中...</span>';
+  if (btn) { btn.disabled = true; btn.textContent = '探测中...'; }
+  try {
+    await loadHealth();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '立即探测'; }
+  }
+}
+
+async function loadHealth() {
+  const probeEl = document.getElementById('health-probe');
+  const tbody = document.getElementById('health-tbody');
+  const grid = document.getElementById('health-grid');
+  try {
+    const resp = await fetch(API_BASE + '/api/health', { headers: getHeaders() });
+    const json = await resp.json();
+    const data = json.data || json;
+
+    // 服务卡片
+    if (grid) {
+      const services = data.services || {};
+      const sys = data.system || {};
+      let cards = '';
+      // NapCat
+      const nc = services.napcat || {};
+      const ncStatus = nc.status || 'unknown';
+      cards += '<div class="status-card"><div class="sc-value" style="color:' + (ncStatus === 'online' ? 'var(--accent)' : 'var(--red)') + '">' + escapeHtml(ncStatus) + '</div><div class="sc-label">NapCat</div></div>';
+      // TG Bot
+      const tg = services.tg_bot || {};
+      cards += '<div class="status-card"><div class="sc-value" style="color:' + (tg.configured ? 'var(--accent)' : 'var(--text-secondary)') + '">' + (tg.configured ? '已配置' : '未配置') + '</div><div class="sc-label">TG Bot</div></div>';
+      // SearXNG
+      const sx = services.searxng || {};
+      cards += '<div class="status-card"><div class="sc-value" style="color:' + (sx.ok ? 'var(--accent)' : 'var(--red)') + '">' + (sx.ok ? '正常' : '不可达') + '</div><div class="sc-label">SearXNG</div></div>';
+      // AI
+      const ai = services.ai || {};
+      cards += '<div class="status-card"><div class="sc-value" style="color:' + (ai.configured ? 'var(--accent)' : 'var(--text-secondary)') + '">' + (ai.configured ? '已配置' : '未配置') + '</div><div class="sc-label">AI (' + escapeHtml(ai.model || '') + ')</div></div>';
+      // CPU
+      if (sys.cpu_percent !== undefined) cards += '<div class="status-card"><div class="sc-value">' + sys.cpu_percent + '%</div><div class="sc-label">CPU</div></div>';
+      if (sys.memory_percent !== undefined) cards += '<div class="status-card"><div class="sc-value">' + sys.memory_percent + '%</div><div class="sc-label">内存</div></div>';
+      if (sys.disk_percent !== undefined) cards += '<div class="status-card"><div class="sc-value">' + sys.disk_percent + '%</div><div class="sc-label">磁盘</div></div>';
+      // 违规模块
+      if (data.violations_24h !== undefined) cards += '<div class="status-card"><div class="sc-value" style="color:' + (data.violations_24h > 0 ? 'var(--yellow)' : 'var(--accent)') + '">' + data.violations_24h + '</div><div class="sc-label">24h 违规</div></div>';
+      cards += '<div class="status-card"><div class="sc-value">' + Math.floor(sys.uptime_seconds / 3600) + 'h</div><div class="sc-label">运行时长</div></div>';
+      grid.innerHTML = cards;
+    }
+
+    // 探测结果：优先用实时探测字段（online/nickname/user_id），兼容旧字段
+    const p = data.napcat_probe || data.services?.napcat || {};
+    // online 可能是布尔；若未提供则从 status 字符串推断
+    let onlineFlag = p.online;
+    if (onlineFlag === undefined || onlineFlag === null) {
+      onlineFlag = (p.status === 'online');
+    }
+    if (probeEl) {
+      probeEl.innerHTML =
+        '<span>在线：<b style="color:' + (onlineFlag === true ? 'var(--accent)' : 'var(--red)') + '">' + (onlineFlag === true ? '是' : (onlineFlag === false ? '否' : '未知')) + '</b></span>' +
+        '<span>账号：<b>' + escapeHtml(String(p.nickname || '') + '(' + String(p.user_id || '-') + ')') + '</b></span>' +
+        '<span>状态：<b>' + escapeHtml(p.status || p.message || '-') + '</b></span>';
+      const dot = document.getElementById('topbar-dot');
+      const txt = document.getElementById('topbar-status-text');
+      if (dot && txt) {
+        if (onlineFlag === true) { dot.className = 'dot online'; txt.textContent = 'NapCat 在线'; }
+        else if (onlineFlag === false) { dot.className = 'dot offline'; txt.textContent = 'NapCat 离线'; }
+        else { dot.className = 'dot warning'; txt.textContent = '状态未知'; }
+      }
+    }
+    if (tbody) {
+      const events = data.events || [];
+      if (!events.length) tbody.innerHTML = '<tr><td colspan="5">暂无事件</td></tr>';
+      else tbody.innerHTML = events.map(function (e) {
+        return '<tr>' +
+          '<td>' + escapeHtml(e.created_at_str || '') + '</td>' +
+          '<td>' + escapeHtml(e.component || '') + '</td>' +
+          '<td>' + escapeHtml(e.status || '') + '</td>' +
+          '<td>' + escapeHtml(e.message || '') + '</td>' +
+          '<td>' + (e.notified ? '是' : '否') + '</td></tr>';
+      }).join('');
+    }
+  } catch (e) {
+    if (probeEl) probeEl.textContent = e.message;
+  }
+}
+
+
+async function loadQQOps(force) {
+  const tbody = document.getElementById('qq-ops-tbody');
+  const filterType = document.getElementById('qq-ops-filter-type');
+  try {
+    const params = new URLSearchParams({ limit: '100' });
+    if (filterType && filterType.value) params.set('action_type', filterType.value);
+    const resp = await fetch(API_BASE + '/api/qq/operations?' + params.toString(), { headers: getHeaders() });
+    const json = await resp.json();
+    const data = json.data || json;
+    const items = data.items || [];
+
+    if (tbody) {
+      if (!items.length) tbody.innerHTML = '<tr><td colspan="5">暂无操作记录</td></tr>';
+      else tbody.innerHTML = items.map(function (it) {
+        const actionLabels = { recall: '撤回', mute: '禁言', alert: '提醒', ban: '封禁', unban: '解封', unmute: '解禁', kick: '踢出', whitelist: '白名单' };
+        const label = actionLabels[it.action_type] || it.action_type;
+        const color = it.action_type === 'recall' || it.action_type === 'mute' || it.action_type === 'ban'
+          ? 'color:var(--yellow)' : 'color:var(--text-secondary)';
+        return '<tr>' +
+          '<td>' + escapeHtml(it.created_at_str || '') + '</td>' +
+          '<td>' + escapeHtml(String(it.group_id)) + '</td>' +
+          '<td>' + escapeHtml(it.user_name || String(it.user_id)) + '</td>' +
+          '<td style="' + color + '">' + escapeHtml(label) + '</td>' +
+          '<td>' + escapeHtml((it.detail || '').slice(0, 80)) + '</td></tr>';
+      }).join('');
+    }
+
+    // 加载统计
+    try {
+      const sresp = await fetch(API_BASE + '/api/qq/stats?hours=24', { headers: getHeaders() });
+      const sj = await sresp.json();
+      const sd = sj.data || sj;
+      const ops = sd.operations || {};
+      const el = document.getElementById('qq-ops-count');
+      if (el) el.textContent = String(ops.total || '0');
+      const ve = document.getElementById('qq-vio-count');
+      if (ve) ve.textContent = String(sd.violations?.total || '0');
+      const pe = document.getElementById('qq-pending-ocr');
+      if (pe) pe.textContent = String(sd.pending_ocr || '0');
+    } catch (e2) {
+      console.error('[QQOps] 统计加载失败:', e2);
+      const el = document.getElementById('qq-ops-count');
+      if (el) el.textContent = '-';
+    }
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5">加载失败: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function loadTrend() {
+  const el = document.getElementById('trend-chart');
+  if (!el) return;
+  try {
+    const data = await fetch(API_BASE + '/api/mod/trend?days=7', { headers: getHeaders() }).then(r => r.json());
+    const items = data.items || [];
+    if (!items.length) { el.innerHTML = '<div class="field-hint">近7天暂无违规</div>'; return; }
+    const byDay = {};
+    items.forEach(function (it) {
+      const d = it.day || '';
+      byDay[d] = (byDay[d] || 0) + (it.cnt || 0);
+    });
+    const vals = Object.keys(byDay).map(function (k) { return byDay[k]; });
+    const max = Math.max.apply(null, vals.concat([1]));
+    el.innerHTML = Object.keys(byDay).sort().map(function (day) {
+      const cnt = byDay[day];
+      const pct = Math.round(cnt / max * 100);
+      return '<div class="trend-row"><span class="day">' + escapeHtml(day) + '</span>' +
+        '<div class="bar-wrap"><div class="bar" style="width:' + pct + '%"></div></div>' +
+        '<span class="cnt">' + cnt + '</span></div>';
+    }).join('');
+  } catch (e) { el.textContent = e.message; }
+}
+
+// ===== Dashboard 趋势图（Chart.js 折线图）=====
+let _dashboardTrendChart = null;
+async function loadDashboardTrend() {
+  const canvas = document.getElementById('dashboard-trend-canvas');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const daysEl = document.getElementById('trend-days');
+  const days = daysEl ? parseInt(daysEl.value) || 7 : 7;
+  try {
+    const data = await fetch(API_BASE + '/api/mod/trend?days=' + days, { headers: getHeaders() }).then(r => r.json());
+    const items = data.items || [];
+    // 按天+按类型聚合
+    const daySet = new Set();
+    const typeSet = new Set();
+    items.forEach(function(it) {
+      if (it.day) daySet.add(it.day);
+      if (it.vtype) typeSet.add(it.vtype);
+    });
+    const daysSorted = Array.from(daySet).sort();
+    const types = Array.from(typeSet);
+    // 按天按类型构建数据
+    const dayTypeMap = {};
+    items.forEach(function(it) {
+      const key = (it.day || '') + '|' + (it.vtype || '');
+      dayTypeMap[key] = (dayTypeMap[key] || 0) + (it.cnt || 0);
+    });
+    const datasets = types.map(function(t, i) {
+      const colors = ['rgba(99,102,241,1)', 'rgba(239,68,68,1)', 'rgba(34,197,94,1)', 'rgba(234,179,8,1)', 'rgba(168,85,247,1)'];
+      return {
+        label: t,
+        data: daysSorted.map(function(d) { return dayTypeMap[d + '|' + t] || 0; }),
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length].replace('1)', '0.1)'),
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        borderWidth: 2,
+      };
+    });
+    if (_dashboardTrendChart) _dashboardTrendChart.destroy();
+    _dashboardTrendChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels: daysSorted, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: types.length > 1, labels: { color: '#9ca3af', font: { size: 11 } } },
+        },
+        scales: {
+          x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y: { beginAtZero: true, ticks: { color: '#6b7280', stepSize: 1, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        },
+      },
+    });
+  } catch (e) {
+    console.error('[DashboardTrend] 加载失败:', e);
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#9ca3af'; ctx.font='14px sans-serif'; ctx.fillText('趋势图加载失败: ' + e.message, 10, 30); }
+  }
+}
+
+// ===== 健康监控：系统资源趋势图（Chart.js）=====
+let _resourceChart = null;
+async function loadResourceChart() {
+  const canvas = document.getElementById('health-resource-canvas');
+  if (!canvas || typeof Chart === 'undefined') return;
+  try {
+    const data = await fetch(API_BASE + '/api/mod/resource-history?hours=24', { headers: getHeaders() }).then(r => r.json());
+    const items = data.items || [];
+    if (!items.length) return;
+    const labels = items.map(function(it) { return it.time_str || ''; });
+    if (_resourceChart) _resourceChart.destroy();
+    _resourceChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'CPU %', data: items.map(function(it) { return it.cpu_percent || 0; }), borderColor: 'rgba(99,102,241,1)', backgroundColor: 'rgba(99,102,241,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
+          { label: '内存 %', data: items.map(function(it) { return it.memory_percent || 0; }), borderColor: 'rgba(34,197,94,1)', backgroundColor: 'rgba(34,197,94,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
+          { label: '磁盘 %', data: items.map(function(it) { return it.disk_percent || 0; }), borderColor: 'rgba(234,179,8,1)', backgroundColor: 'rgba(234,179,8,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#9ca3af', font: { size: 11 } } },
+        },
+        scales: {
+          x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y: { beginAtZero: true, max: 100, ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        },
+        interaction: { intersect: false, mode: 'index' },
+      },
+    });
+  } catch (e) {
+    console.error('[ResourceChart] 加载失败:', e);
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#9ca3af'; ctx.font='14px sans-serif'; ctx.fillText('资源图加载失败: ' + e.message, 10, 30); }
+  }
+}
+
+async function loadStats() {
+  const sumEl = document.getElementById('stats-summary');
+  const tbody = document.getElementById('stats-reasons');
+  try {
+    const data = await fetch(API_BASE + '/api/mod/stats?hours=24', { headers: getHeaders() }).then(r => r.json());
+    if (sumEl) {
+      const byType = (data.by_type || []).map(function (x) { return x.vtype + ':' + x.cnt; }).join(' · ') || '-';
+      const byAct = (data.by_action || []).slice(0, 4).map(function (x) { return (x.action || '-') + ':' + x.cnt; }).join(' · ') || '-';
+      sumEl.innerHTML =
+        '<span>总计：<b>' + (data.total || 0) + '</b></span>' +
+        '<span>类型：<b>' + escapeHtml(byType) + '</b></span>' +
+        '<span>动作：<b>' + escapeHtml(byAct) + '</b></span>';
+    }
+    if (tbody) {
+      const rows = data.top_reasons || [];
+      if (!rows.length) tbody.innerHTML = '<tr><td colspan="2">暂无</td></tr>';
+      else tbody.innerHTML = rows.map(function (r) {
+        return '<tr><td>' + escapeHtml(String(r.reason || '').slice(0, 80)) + '</td><td>' + r.cnt + '</td></tr>';
+      }).join('');
+    }
+  } catch (e) {
+    if (sumEl) sumEl.textContent = e.message;
+  }
+}
+
+async function loadSessionBackups() {
+  const tbody = document.getElementById('session-backup-tbody');
+  if (!tbody) return;
+  try {
+    const data = await fetch(API_BASE + '/api/ops/session-backups', { headers: getHeaders() }).then(r => r.json());
+    const items = data.items || [];
+    if (!items.length) { tbody.innerHTML = '<tr><td colspan="5">暂无备份</td></tr>'; return; }
+    tbody.innerHTML = items.map(function (it) {
+      const safeName = encodeURIComponent(String(it.name || ''));
+      return '<tr>' +
+        '<td>' + escapeHtml(it.name) + '</td>' +
+        '<td>' + (it.size_mb || 0) + ' MB</td>' +
+        '<td>' + (it.has_qq ? '有' : '无') + '</td>' +
+        '<td>' + (it.has_config ? '有' : '无') + '</td>' +
+        '<td><button class="btn btn-sm" onclick="restoreSessionBackup(\'' + safeName + '\')">恢复</button></td>' +
+        '</tr>';
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="5">' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function backupSessionNow() {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/ops/session-backup-now', { method: 'POST', headers: getHeaders() });
+    const data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '备份失败');
+    showToast('已备份: ' + (data.backup || ''));
+    loadSessionBackups();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function restoreSessionBackup(name) {
+  name = decodeURIComponent(name);
+  if (!confirm('确认从 ' + name + ' 恢复 Session？将覆盖当前登录态目录，并建议重启 napcat。')) return;
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/ops/session-restore', {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ name: name })
+    });
+    const data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '恢复失败');
+    showToast((data.hint || '恢复成功') + ' → ' + ((data.restored || []).join(',') || ''));
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function exportViolations() {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    const resp = await fetch(API_BASE + '/api/mod/violations/export?limit=2000', { headers: getHeaders() });
+    if (!resp.ok) throw new Error('导出失败');
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'violations.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('已导出 CSV');
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function backupConfig() {
+  try {
+    const data = await fetch(API_BASE + '/api/config/backup', { headers: getHeaders() }).then(r => r.json());
+    const pre = document.getElementById('backup-preview');
+    if (pre) pre.textContent = JSON.stringify({
+      exported_at: data.exported_at,
+      env_lines: (data.env || '').split('\n').length,
+      group_configs: (data.group_configs || []).length,
+      maps: (data.group_map || []).length,
+      access: (data.access_list || []).length,
+      words: (data.custom_words || []).length
+    }, null, 2);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tgjqr-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('备份已下载');
+  } catch (e) { showToast(e.message, true); }
+}
+
+async function restoreConfig(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!confirm('确认从备份恢复？将覆盖 .env 与部分管理数据。')) { input.value = ''; return; }
+  try {
+    const text = await file.text();
+    const body = JSON.parse(text);
+    const resp = await fetch(API_BASE + '/api/config/restore', {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify(body)
+    });
+    const data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '恢复失败');
+    showToast('已恢复: ' + (data.restored || []).join(', '));
+    loadAllData();
+  } catch (e) { showToast(e.message, true); }
+  input.value = '';
+}
+
+/* ============================================================
+   FAQ Management
+   ============================================================ */
+async function loadFAQ() {
+  const tbody = document.getElementById('faq-tbody');
+  if (!tbody) return;
+  try {
+    const search = document.getElementById('faq-search')?.value?.trim() || '';
+    let url = API_BASE + '/api/faq?limit=500';
+    if (search) url += '&keyword_search=' + encodeURIComponent(search);
+    const data = await fetch(url, { headers: getHeaders() }).then(function(r) { return r.json(); });
+    const items = data.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="8">暂无 FAQ 条目</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(function(it) {
+      var statusHtml = it.enabled
+        ? '<span style="color:var(--green)">启用</span>'
+        : '<span style="color:var(--red)">禁用</span>';
+      var toggleBtn = it.enabled
+        ? '<button class="btn btn-sm" onclick="toggleFAQ(' + it.id + ',false)">禁用</button>'
+        : '<button class="btn btn-sm" onclick="toggleFAQ(' + it.id + ',true)">启用</button>';
+      var matchTypeLabel = it.match_type === 'semantic' ? '语义' : '关键词';
+      var groupLabel = it.group_id ? '群' + it.group_id : '全局';
+      return '<tr>' +
+        '<td>' + it.id + '</td>' +
+        '<td>' + escapeHtml(it.keyword) + '</td>' +
+        '<td>' + escapeHtml((it.question || '').slice(0,40)) + '</td>' +
+        '<td>' + escapeHtml((it.answer || '').slice(0,60)) + '</td>' +
+        '<td>' + matchTypeLabel + '</td>' +
+        '<td>' + groupLabel + '</td>' +
+        '<td>' + statusHtml + '</td>' +
+        '<td>' +
+          '<button class="btn btn-sm" onclick="editFAQ(' + it.id + ')">编辑</button> ' +
+          toggleBtn + ' ' +
+          '<button class="btn btn-sm btn-red" onclick="deleteFAQ(' + it.id + ')">删除</button>' +
+        '</td></tr>';
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="8">' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+async function addFAQ() {
+  var keyword = document.getElementById('faq-new-keyword')?.value?.trim();
+  var question = document.getElementById('faq-new-question')?.value?.trim();
+  var answer = document.getElementById('faq-new-answer')?.value?.trim();
+  var matchType = document.getElementById('faq-new-match-type')?.value || 'keyword';
+  var groupId = parseInt(document.getElementById('faq-new-group')?.value || '0');
+  if (!keyword || !answer) { showToast('关键词和回复内容不能为空', true); return; }
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    var resp = await fetch(API_BASE + '/api/faq', {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ keyword: keyword, question: question, answer: answer, match_type: matchType, group_id: groupId })
+    });
+    var data = await resp.json().catch(function() { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '添加失败');
+    showToast('FAQ 已添加');
+    document.getElementById('faq-new-keyword').value = '';
+    document.getElementById('faq-new-question').value = '';
+    document.getElementById('faq-new-answer').value = '';
+    loadFAQ();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function deleteFAQ(id) {
+  if (!confirm('确认删除 FAQ #' + id + '？')) return;
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    var resp = await fetch(API_BASE + '/api/faq/' + id, {
+      method: 'DELETE', headers: getHeaders()
+    });
+    if (!resp.ok) throw new Error('删除失败');
+    showToast('已删除');
+    loadFAQ();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function toggleFAQ(id, enabled) {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    var resp = await fetch(API_BASE + '/api/faq/' + id, {
+      method: 'PUT', headers: getHeaders(),
+      body: JSON.stringify({ enabled: enabled })
+    });
+    var data = await resp.json().catch(function() { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '操作失败');
+    showToast(enabled ? '已启用' : '已禁用');
+    loadFAQ();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function editFAQ(id) {
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    var resp = await fetch(API_BASE + '/api/faq/' + id, { headers: getHeaders() });
+    var data = await resp.json().catch(function() { return {}; });
+    if (!resp.ok || !data.item) throw new Error('获取失败');
+    var it = data.item;
+    var newKeyword = prompt('关键词:', it.keyword || '');
+    if (newKeyword === null) return;
+    var newAnswer = prompt('回复内容:', it.answer || '');
+    if (newAnswer === null) return;
+    var newQuestion = prompt('标准问题（可选）:', it.question || '');
+    if (newQuestion === null) return;
+    var newGroup = prompt('作用群组 (0=全局):', String(it.group_id || 0));
+    if (newGroup === null) return;
+    var newMatchType = prompt('匹配方式 (keyword/semantic):', it.match_type || 'keyword');
+    if (newMatchType === null) return;
+
+    var body = {
+      keyword: newKeyword.trim(),
+      answer: newAnswer.trim(),
+      question: (newQuestion || '').trim(),
+      group_id: parseInt(newGroup || '0'),
+      match_type: (newMatchType || 'keyword').trim()
+    };
+    var putResp = await fetch(API_BASE + '/api/faq/' + id, {
+      method: 'PUT', headers: getHeaders(),
+      body: JSON.stringify(body)
+    });
+    var putData = await putResp.json().catch(function() { return {}; });
+    if (!putResp.ok) throw new Error(putData.detail || '更新失败');
+    showToast('FAQ 已更新');
+    loadFAQ();
+  } catch (e) { showToast(e.message, true); }
+  finally { setBtnLoading(btn, false); }
+}
+
+async function testFAQ() {
+  var text = document.getElementById('faq-test-text')?.value?.trim();
+  var resultEl = document.getElementById('faq-test-result');
+  if (!text) { showToast('请输入测试文本', true); return; }
+  const btn = document.activeElement;
+  setBtnLoading(btn, true);
+  try {
+    var resp = await fetch(API_BASE + '/api/faq/test', {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ text: text })
+    });
+    var data = await resp.json().catch(function() { return {}; });
+    if (!resp.ok) throw new Error(data.detail || '测试失败');
+    resultEl.style.display = 'block';
+    if (data.matched && data.item) {
+      resultEl.style.background = 'var(--card-bg)';
+      resultEl.style.borderLeft = '3px solid var(--green)';
+      resultEl.innerHTML =
+        '<strong>✅ 匹配成功</strong><br>' +
+        '关键词: <code>' + escapeHtml(data.item.keyword) + '</code><br>' +
+        '标准问题: ' + escapeHtml(data.item.question || '-') + '<br>' +
+        '回复内容: ' + escapeHtml(data.item.answer) + '<br>' +
+        '匹配方式: ' + (data.item.match_type === 'semantic' ? '语义' : '关键词');
+    } else {
+      resultEl.style.background = 'var(--card-bg)';
+      resultEl.style.borderLeft = '3px solid var(--orange)';
+      resultEl.innerHTML = '<strong>❌ 未匹配到任何 FAQ</strong><br>未找到匹配的问答条目';
+    }
+  } catch (e) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = 'var(--card-bg)';
+    resultEl.style.borderLeft = '3px solid var(--red)';
+    resultEl.innerHTML = '<strong>测试出错:</strong> ' + escapeHtml(e.message);
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+/* ============================================================
+   APPEALS (误报管理)
+   ============================================================ */
+const _APPEALS_PAGE_SIZE = 20;
+let _appealsOffset = 0;
+let _appealsTotal = 0;
+let _appealsCurrentItem = null;
+
+async function loadAppeals(offset) {
+  _appealsOffset = offset || 0;
+  const tbody = document.getElementById('appeals-tbody');
+  const infoEl = document.getElementById('appeals-info');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="7">加载中...</td></tr>';
+
+  try {
+    const groupFilter = (document.getElementById('appeals-group-filter') || {}).value || '';
+    const typeFilter = (document.getElementById('appeals-type-filter') || {}).value || '';
+    const qs = new URLSearchParams({ limit: String(_APPEALS_PAGE_SIZE), offset: String(_appealsOffset) });
+    if (groupFilter) qs.set('group_id', groupFilter);
+    if (typeFilter) qs.set('vtype', typeFilter);
+
+    const resp = await fetch(API_BASE + '/api/mod/violations?' + qs.toString(), { headers: getHeaders() });
+    const data = await resp.json();
+    const items = data.items || [];
+    _appealsTotal = data.total || items.length;
+
+    if (infoEl) {
+      const page = Math.floor(_appealsOffset / _APPEALS_PAGE_SIZE) + 1;
+      const totalPages = Math.ceil(_appealsTotal / _APPEALS_PAGE_SIZE);
+      infoEl.textContent = '第 ' + page + ' / ' + (totalPages || 1) + ' 页，共 ' + _appealsTotal + ' 条';
+    }
+
+    const prevBtn = document.getElementById('appeals-prev');
+    const nextBtn = document.getElementById('appeals-next');
+    if (prevBtn) prevBtn.disabled = _appealsOffset <= 0;
+    if (nextBtn) nextBtn.disabled = _appealsOffset + _APPEALS_PAGE_SIZE >= _appealsTotal;
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7">暂无记录</td></tr>';
+      return;
+    }
+
+    const typeMap = { ad: '广告', flood: '刷屏', ocr: 'OCR', card: '名片', join: '入群', command: '指令' };
+
+    tbody.innerHTML = items.map(function(it) {
+      return '<tr>' +
+        '<td>' + escapeHtml(it.created_at_str || '') + '</td>' +
+        '<td>' + (it.group_id || '-') + '</td>' +
+        '<td>' + escapeHtml((it.user_name || '') + (it.user_id ? ' (' + it.user_id + ')' : '')) + '</td>' +
+        '<td>' + escapeHtml(typeMap[it.vtype] || it.vtype || '') + '</td>' +
+        '<td>' + (it.score || 0) + '</td>' +
+        '<td>' + escapeHtml(it.reason || '') + '</td>' +
+        '<td><button class="btn btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="openAppealModal(' + (it.id || 0) + ',\'' + encodeURIComponent(it.reason || '') + '\',' + (it.group_id || 0) + ')">标记误报</button></td>' +
+        '</tr>';
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="7">加载失败: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+function appealsPrevPage() {
+  if (_appealsOffset > 0) {
+    loadAppeals(_appealsOffset - _APPEALS_PAGE_SIZE);
+  }
+}
+
+function appealsNextPage() {
+  if (_appealsOffset + _APPEALS_PAGE_SIZE < _appealsTotal) {
+    loadAppeals(_appealsOffset + _APPEALS_PAGE_SIZE);
+  }
+}
+
+function openAppealModal(violationId, reason, groupId) {
+  _appealsCurrentItem = { id: violationId, group_id: groupId };
+  document.getElementById('appeal-keyword').value = decodeURIComponent(reason || '');
+  document.getElementById('appeal-scope').value = 'global';
+  document.getElementById('appeal-remark').value = '';
+  document.getElementById('appeal-group-id').value = groupId || '';
+  document.getElementById('appeal-group-row').style.display = 'none';
+  document.getElementById('appeal-modal').classList.add('active');
+}
+
+// Toggle group field visibility based on scope
+document.addEventListener('DOMContentLoaded', function() {
+  var scopeSel = document.getElementById('appeal-scope');
+  if (scopeSel) {
+    scopeSel.addEventListener('change', function() {
+      var groupRow = document.getElementById('appeal-group-row');
+      if (groupRow) {
+        groupRow.style.display = this.value === 'group' ? 'block' : 'none';
+      }
+    });
+  }
+});
+
+function closeAppealModal() {
+  document.getElementById('appeal-modal').classList.remove('active');
+  _appealsCurrentItem = null;
+}
+
+async function submitAppeal() {
+  if (!_appealsCurrentItem) return;
+  var keyword = (document.getElementById('appeal-keyword') || {}).value || '';
+  var scope = (document.getElementById('appeal-scope') || {}).value || 'global';
+  var groupId = (document.getElementById('appeal-group-id') || {}).value || '';
+  var remark = (document.getElementById('appeal-remark') || {}).value || '';
+
+  if (!keyword.trim()) {
+    showToast('请输入关键词', true);
+    return;
+  }
+
+  var submitBtn = document.getElementById('appeal-submit-btn');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '提交中...'; }
+
+  try {
+    var body = {
+      violation_id: _appealsCurrentItem.id,
+      keyword: keyword,
+      scope: scope,
+      remark: remark
+    };
+    if (scope === 'group' && groupId) {
+      body.group_id = groupId;
+    }
+
+    var resp = await fetch(API_BASE + '/api/mod/violations/appeal', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body)
+    });
+
+    if (resp.ok) {
+      showToast('误报标记成功，已提交申诉');
+      closeAppealModal();
+      loadAppeals(_appealsOffset);
+    } else {
+      var errData = await resp.json().catch(function() { return {}; });
+      showToast('提交失败: ' + (errData.error || resp.status), true);
+    }
+  } catch (e) {
+    showToast('网络错误: ' + e.message, true);
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '确认标记'; }
+  }
+}
+
+/* ============================================================
+   AI CHAT
+   ============================================================ */
+var _aiChatHistory = [];
+var _aiChatSending = false;
+
+function aiChatPreset(text) {
+  document.getElementById('ai-chat-input').value = text;
+  aiChatSend();
+}
+
+function aiChatAppend(role, html) {
+  var container = document.getElementById('ai-chat-messages');
+  var div = document.createElement('div');
+  if (role === 'user') {
+    div.className = 'ai-msg ai-msg-user';
+    div.innerHTML = '<div class="ai-msg-avatar">ME</div><div class="ai-msg-bubble ai-msg-bubble-user">' + aiEscapeHtml(html) + '</div>';
+  } else {
+    div.className = 'ai-msg ai-msg-ai';
+    div.innerHTML = '<div class="ai-msg-avatar">AI</div><div class="ai-msg-bubble ai-msg-bubble-ai">' + html + '</div>';
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function aiEscapeHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function aiChatSend() {
+  if (_aiChatSending) return;
+  var input = document.getElementById('ai-chat-input');
+  var text = (input.value || '').trim();
+  if (!text) return;
+
+  _aiChatSending = true;
+  input.value = '';
+
+  // Append user message
+  aiChatAppend('user', text);
+  _aiChatHistory.push({ role: 'user', content: text });
+
+  // Show typing indicator
+  var typingDiv = aiChatAppend('ai', '');
+  var bubble = typingDiv.querySelector('.ai-msg-bubble-ai');
+  if (bubble) bubble.classList.add('typing');
+  bubble.textContent = '思考中';
+
+  var sendBtn = document.getElementById('ai-chat-send-btn');
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '发送中'; }
+
+  var context = '';
+  // Try to build context from existing data
+  try { context = JSON.stringify(window._dashboardStats || {}); } catch(e) {}
+
+  fetch(API_BASE + '/api/ai/chat', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ message: text, context: context })
+  })
+  .then(function(r) {
+    if (!r.ok) return r.json().then(function(d) { throw new Error(d.detail || r.status); });
+    return r.json();
+  })
+  .then(function(data) {
+    var reply = data.reply || data.message || '(无回复)';
+    _aiChatHistory.push({ role: 'assistant', content: reply });
+    bubble.classList.remove('typing');
+    bubble.textContent = reply;
+    var container = document.getElementById('ai-chat-messages');
+    container.scrollTop = container.scrollHeight;
+  })
+  .catch(function(e) {
+    bubble.classList.remove('typing');
+    bubble.textContent = '';
+    bubble.style.color = 'var(--red)';
+    bubble.textContent = '请求失败: ' + e.message;
+  })
+  .finally(function() {
+    _aiChatSending = false;
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '发送'; }
+  });
+}
+</script>
+
+<!-- ==================== APPEAL MODAL ==================== -->
+<div id="appeal-modal" class="modal-overlay" onclick="if(event.target===this)closeAppealModal()">
+  <div class="modal-box">
+    <h3>标记误报 / 加入白名单</h3>
+    <div class="form-group">
+      <label>违规内容关键词（预填）</label>
+      <input id="appeal-keyword" class="form-input" placeholder="输入误报相关的关键词">
+    </div>
+    <div class="form-group">
+      <label>白名单级别</label>
+      <select id="appeal-scope" class="form-input">
+        <option value="global">全局白名单</option>
+        <option value="group">群级白名单</option>
+      </select>
+    </div>
+    <div class="form-group" id="appeal-group-row" style="display:none">
+      <label>群号</label>
+      <input id="appeal-group-id" class="form-input" placeholder="输入群号" readonly>
+    </div>
+    <div class="form-group">
+      <label>备注（可选）</label>
+      <input id="appeal-remark" class="form-input" placeholder="申诉备注...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeAppealModal()">取消</button>
+      <button class="btn btn-sm btn-blue" id="appeal-submit-btn" onclick="submitAppeal()">确认标记</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
