@@ -39,6 +39,10 @@ _ocr_pending_ids: set = set()
 # NapCat 小号 QQ 号（启动时从 config 加载）
 _napcat_self_qq = 0
 
+# QQ 系统机器人 QQ 号集合（这些账号的 sender.role 不是 "bot"，需要单独屏蔽）
+# Q群管家: 2854196310（自动发欢迎消息、群规提醒等）
+SYSTEM_BOT_QQS = {2854196310, 2854196320}
+
 # 群聊 AI 上下文缓存：group_id -> [{"role":"user"/"assistant","content":text}, ...]
 _group_chat_history: Dict[int, List[Dict[str, str]]] = {}
 _MAX_GROUP_HISTORY = 5
@@ -136,9 +140,10 @@ class NapCatWSClient:
 
             # 群消息：缓存 + 名片检查 + 图片 OCR
             if post_type == "message" and message_type == "group":
-                # 过滤其他机器人的消息（sender.role == "bot"）
+                # 过滤其他机器人的消息（sender.role == "bot" 或已知系统机器人QQ号）
                 _grp_sender = data.get("sender") or {}
-                if str(_grp_sender.get("role", "")).lower() == "bot":
+                _grp_user_id = data.get("user_id", 0)
+                if str(_grp_sender.get("role", "")).lower() == "bot" or _grp_user_id in SYSTEM_BOT_QQS:
                     return
                 is_at_msg = await self._handle_group_message(data)
                 # @消息不再走名片检查和OCR检测
@@ -197,7 +202,7 @@ class NapCatWSClient:
 
         # ===== 过滤其他机器人的消息（不做检测、不回复、不缓存）=====
         sender_raw = data.get("sender") or {}
-        if str(sender_raw.get("role", "")).lower() == "bot":
+        if str(sender_raw.get("role", "")).lower() == "bot" or user_id in SYSTEM_BOT_QQS:
             return False
 
         # ===== 自动学习：首次发现群时创建配置 =====
