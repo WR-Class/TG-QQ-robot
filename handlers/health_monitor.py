@@ -562,23 +562,23 @@ async def _try_push_qrcode(logs: str) -> bool:
     text = (
         "📱 <b>QQ 需要重新扫码登录</b>\n\n"
         "NapCat 已掉线且自动重启无效，需手动扫码授权。\n"
-        "用手机 QQ 扫描下方二维码即可恢复。\n"
+        "用手机 QQ 扫描下方二维码即可恢复。\n\n"
+        "📌 <b>扫码方法</b>：\n"
+        "1. 打开手机 QQ → 右上角 + 号 → 扫一扫\n"
+        "2. 扫描下方图片二维码\n"
+        "3. 在手机上点击「允许登录」\n"
     )
     if qrcode_url:
-        text += f"\n🔗 备用链接（复制到浏览器生成二维码）:\n<code>{qrcode_url}</code>\n"
-    # 从配置读取 WebUI token 构建登录 URL
-    try:
-        from config import settings as _hms
-        _webui_token = str(getattr(_hms, "NAPCAT_WEBUI_TOKEN", "") or "").strip()
-        _webui_url = f"http://localhost:56099/webui?token={_webui_token}" if _webui_token else "http://localhost:56099/webui"
-    except Exception:
-        _webui_url = "http://localhost:56099/webui"
-    text += (
-        f"\n🌐 也可访问 WebUI 登录:\n"
-        f"{_webui_url}\n"
-        f"（需在宿主机浏览器打开）"
-    )
-
+        # 将原始 URL 转成在线二维码生成器链接，外网也能扫码
+        # 使用 qrserver.cn 生成二维码图片（国内可访问）
+        qr_gen_url = f"https://api.qrserver.com/v1/create-qr-code/?size=400x400&data={qrcode_url}"
+        text += (
+            f"\n🔗 <b>在线二维码链接</b>（图片失败时备用）:\n"
+            f"复制下方链接到浏览器打开，用手机QQ扫描显示的二维码:\n"
+            f"<code>{qr_gen_url}</code>\n"
+            f"\n或使用原始链接（需自行生成二维码）:\n"
+            f"<code>{qrcode_url}</code>\n"
+        )
     pushed = False
     if qrcode_data:
         pushed = await _send_tg_photo(qrcode_data, caption=text[:1000])
