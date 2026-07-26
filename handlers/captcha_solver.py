@@ -256,44 +256,66 @@ async def _napcat_webui_post(
     2. POST /auth/login {"hash": hash} → 获取 Credential（Base64 编码的 JSON）
     3. 后续请求 Authorization: Bearer <Credential>
     4. Credential 有效期 1 小时，到期需重新获取
+
+    NapCat 重启后旧 Credential 会失效，收到 401 时自动清除缓存并重试一次。
     """
-    try:
-        import httpx
-
-        # 从配置读取 WebUI token
-        webui_token = ""
+    for _attempt in range(2):
         try:
-            from config import settings
-            t = str(getattr(settings, "NAPCAT_WEBUI_TOKEN", "") or "").strip()
-            if t:
-                webui_token = t
-        except Exception:
-            logger.debug("[PasswordLogin] 从配置读取 NAPCAT_WEBUI_TOKEN 失败")
-        if not webui_token:
-            logger.warning("[PasswordLogin] NAPCAT_WEBUI_TOKEN 未配置，无法密码登录")
-            return None
+            import httpx
 
-        # Step 1: 获取 Credential（有效期 1 小时）
-        credential = await _get_webui_credential(webui_token, napcat_api_base)
-        if not credential:
-            logger.warning("[PasswordLogin] 无法获取 WebUI Credential")
-            return None
+            # 从配置读取 WebUI token
+            webui_token = ""
+            try:
+                from config import settings
+                t = str(getattr(settings, "NAPCAT_WEBUI_TOKEN", "") or "").strip()
+                if t:
+                    webui_token = t
+            except Exception:
+                logger.debug("[PasswordLogin] 从配置读取 NAPCAT_WEBUI_TOKEN 失败")
+            if not webui_token:
+                logger.warning("[PasswordLogin] NAPCAT_WEBUI_TOKEN 未配置，无法密码登录")
+                return None
 
-        headers = {
-            "Authorization": f"Bearer {credential}",
-            "Content-Type": "application/json",
-        }
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{napcat_api_base}{path}",
-                json=body,
-                headers=headers,
-            )
-            result = resp.json()
-            return result
-    except Exception as e:
-        logger.warning(f"[PasswordLogin] WebUI API 请求异常: {e}")
-        return None
+            # Step 1: 获取 Credential（有效期 1 小时）
+            credential = await _get_webui_credential(webui_token, napcat_api_base)
+            if not credential:
+                logger.warning("[PasswordLogin] 无法获取 WebUI Credential")
+                return None
+
+            headers = {
+                "Authorization": f"Bearer {credential}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{napcat_api_base}{path}",
+                    json=body,
+                    headers=headers,
+                )
+
+                # 401 Unauthorized: NapCat 重启后旧 Credential 失效，清除缓存重试
+                if resp.status_code == 401 and _attempt == 0:
+                    logger.warning("[PasswordLogin] WebUI 返回 401，清除 Credential 缓存并重试")
+                    global _webui_credential_cache
+                    _webui_credential_cache = {"credential": "", "expires_at": 0}
+                    continue
+
+                result = resp.json()
+                # 某些版本 NapCat 会在 body 中返回 Unauthorized 而非 HTTP 401
+                if (
+                    _attempt == 0
+                    and isinstance(result, dict)
+                    and "Unauthorized" in str(result.get("message", ""))
+                ):
+                    logger.warning("[PasswordLogin] WebUI 返回 Unauthorized(body)，清除 Credential 缓存并重试")
+                    _webui_credential_cache = {"credential": "", "expires_at": 0}
+                    continue
+                return result
+        except Exception as e:
+            logger.warning(f"[PasswordLogin] WebUI API 请求异常: {e}")
+            return None
+    logger.warning("[PasswordLogin] WebUI API 重试后仍失败")
+    return None
 
 
 _webui_credential_cache: Dict[str, Any] = {"credential": "", "expires_at": 0}
