@@ -274,7 +274,15 @@ async def ai_detect_ad(text: str, username: str = "", user_bio: str = "", group_
                     ai_src if sources else ["AI"],
                 )
             elif ai_score > 0 and total_score > 0:
-                merged_score = min(100, total_score + ai_score // 2)
+                # AI 判定正常聊天(score<=20)时，词库/规则命中大幅降权，避免误伤
+                if ai_score <= 20:
+                    merged_score = min(total_score, max(ai_score, 25))
+                    logger.info(
+                        f"[广告检测] AI判正常聊天降权: rules={total_score} ai={ai_score} "
+                        f"merged={merged_score} text={text[:40]!r}"
+                    )
+                else:
+                    merged_score = min(100, total_score + ai_score // 2)
                 merged_reason = "、".join(filter(None, [
                     "、".join([r["reason"] for r in matched_rules[:2]]),
                     ai_reason,
