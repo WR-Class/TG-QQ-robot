@@ -28,6 +28,9 @@ logging.basicConfig(
         logging.FileHandler("bot.log", encoding="utf-8"),
     ],
 )
+# 抑制 httpx/apscheduler 的 INFO 级请求日志刷屏
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

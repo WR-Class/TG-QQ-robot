@@ -36,6 +36,15 @@ _pending_ocr_checks: dict = {}
 # OCR正在延迟观察的消息ID集合
 _ocr_pending_ids: set = set()
 
+# 活动时间跟踪：user_id/group_id -> 最后活跃时间戳（用于周期性清理）
+_private_activity_ts: Dict[int, float] = {}
+_group_activity_ts: Dict[int, float] = {}
+# 最后一次收到 NapCat WS 消息的时间戳（用于检测僵死连接）
+_last_ws_msg_ts: float = time.time()
+# 内存清理配置
+_CLEANUP_INTERVAL = 300  # 每 5 分钟清理一次
+_CLEANUP_MAX_IDLE = 1800  # 30 分钟未活跃的缓存条目将被清理
+
 # NapCat 小号 QQ 号（启动时从 config 加载）
 _napcat_self_qq = 0
 
@@ -89,6 +98,7 @@ class NapCatWSClient:
         """启动 WebSocket 连接"""
         self._running = True
         self._session = aiohttp.ClientSession()
+        _reconnect_delay = 2  # 初始重连延迟
         while self._running:
             try:
                 url = self.ws_url
@@ -100,35 +110,35 @@ class NapCatWSClient:
                 if self.access_token:
                     safe_url = url.replace(f"access_token={self.access_token}", "access_token=***")
                 logger.info(f"[NapCat WS] 连接中: {safe_url[:80]}...")
-                async with self._session.ws_connect(url, heartbeat=30) as ws:
+                async with self._session.ws_connect(url) as ws:
                     self._ws = ws
                     logger.info("[NapCat WS] 已连接")
-                    # 消息空闲超时：120秒没收到任何消息则主动断开重连
-                    # 防止服务端静默断开后 aiohttp 无法检测到
-                    idle_timeout = 120
-                    last_msg_time = time.time()
+                    _reconnect_delay = 2  # 连接成功，重置退避
                     while self._running:
                         try:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=30)
-                            last_msg_time = time.time()
-                            if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.ERROR):
-                                logger.warning(f"[NapCat WS] 收到关闭/错误帧: {msg.type}，准备重连")
+                            msg = await asyncio.wait_for(ws.receive(), timeout=60)
+                            if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING,
+                                             aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                                logger.warning(f"[NapCat WS] 收到关闭帧: type={msg.type}({msg.type.name})，准备重连")
                                 break
                             if msg.type in (aiohttp.WSMsgType.TEXT, aiohttp.WSMsgType.BINARY):
                                 await self._on_message(msg)
-                            # PING/PONG 由 heartbeat 参数自动处理
-                        except asyncio.TimeoutError:
-                            # 30秒没消息，检查是否超时
-                            if time.time() - last_msg_time > idle_timeout:
-                                logger.warning(
-                                    f"[NapCat WS] 消息空闲超时({int(time.time()-last_msg_time)}s)，主动断开重连"
-                                )
-                                break
+                            # 非消息帧（如 PING/PONG）忽略
                             continue
+                        except asyncio.TimeoutError:
+                            # 60秒无任何帧，连接已死
+                            logger.warning(
+                                f"[NapCat WS] 60s 未收到任何帧，连接已死，断开重连"
+                            )
+                            break
+                # 内层 break 后到这里，等待后重连
+                await asyncio.sleep(_reconnect_delay)
+                _reconnect_delay = min(_reconnect_delay * 2, 30)  # 指数退避，最大30s
             except asyncio.CancelledError:
+                logger.info("[NapCat WS] 任务被取消，停止")
                 break
             except Exception as e:
-                logger.warning(f"[NapCat WS] 连接断开: {e}, 5秒后重连...")
+                logger.warning(f"[NapCat WS] 连接异常: {e}, 5秒后重连...")
                 await asyncio.sleep(5)
         if self._session:
             await self._session.close()
@@ -148,6 +158,11 @@ class NapCatWSClient:
 
             post_type = data.get("post_type", "")
             message_type = data.get("message_type", "")
+            # 更新最后收到 WS 消息的时间戳（仅非心跳事件，用于僵死连接检测）
+            # meta_event 是心跳/生命周期事件，不反映 QQ 连接是否真正活跃
+            if post_type != "meta_event":
+                global _last_ws_msg_ts
+                _last_ws_msg_ts = time.time()
             # 跳过心跳/元事件，其余消息类打日志便于排查
             if post_type and post_type not in ("meta_event",):
                 if post_type == "message" or message_type:
@@ -205,6 +220,8 @@ class NapCatWSClient:
         global _napcat_self_qq
         group_id = data.get("group_id", 0)
         message_id = data.get("message_id", 0)
+        # 更新群活跃时间戳（用于内存清理）
+        _group_activity_ts[group_id] = time.time()
         user_id = data.get("user_id", 0)
         raw_msg = data.get("raw_message", "") or ""
         msg_time = time.time()  # 统一用本地时间，避免服务器时间偏差
@@ -957,6 +974,8 @@ class NapCatWSClient:
             user_id = int(data.get("user_id") or 0)
             if not user_id:
                 return
+            # 更新私聊活跃时间戳（用于内存清理）
+            _private_activity_ts[user_id] = time.time()
             # 提取文本
             text = ""
             raw = data.get("raw_message") or ""
@@ -1242,7 +1261,8 @@ class NapCatWSClient:
                         )
                 except Exception:
                     pass
-                return True
+                # 低置信度仅提醒，不视为广告（消息仍在群里，FAQ等后续流程继续）
+                return False
 
             # 高置信（score >= ad_recall_score）：撤回 + 群内告警 + 私聊通知
             from napcat_bridge import get_napcat_bridge
@@ -1897,6 +1917,94 @@ def check_context_relevance(group_num: int, text: str, sender_qq: int = 0, windo
 _ws_client: NapCatWSClient = None
 
 
+async def _periodic_memory_cleanup():
+    """
+    周期性内存清理任务：每 5 分钟执行一次。
+    清理以下无界增长的缓存：
+    1. _private_chat_history / _group_chat_history - 移除 30 分钟未活跃的条目
+    2. _pending_faq_feedback - 移除过期的反馈条目（超过 5 分钟）
+    3. _msg_cache - 移除过期群的消息缓存
+    4. _pending_ocr_checks / _ocr_pending_ids - 移除 OCR 处理超时的条目
+    5. _private_activity_ts / _group_activity_ts - 移除已清理的活跃时间记录
+    """
+    while True:
+        await asyncio.sleep(_CLEANUP_INTERVAL)
+        try:
+            now = time.time()
+            cutoff = now - _CLEANUP_MAX_IDLE
+            cleaned = {"private": 0, "group": 0, "faq": 0, "msg_cache": 0, "ocr": 0}
+
+            # 1. 清理私聊历史（30 分钟未活跃的用户）
+            stale_users = [
+                uid for uid, ts in _private_activity_ts.items()
+                if ts < cutoff
+            ]
+            for uid in stale_users:
+                _private_chat_history.pop(uid, None)
+                _private_activity_ts.pop(uid, None)
+                cleaned["private"] += 1
+
+            # 2. 清理群聊历史（30 分钟未活跃的群）
+            stale_groups = [
+                gid for gid, ts in _group_activity_ts.items()
+                if ts < cutoff
+            ]
+            for gid in stale_groups:
+                _group_chat_history.pop(gid, None)
+                _group_activity_ts.pop(gid, None)
+                cleaned["group"] += 1
+
+            # 3. 清理过期的 FAQ 反馈条目
+            stale_faq = [
+                key for key, val in _pending_faq_feedback.items()
+                if now - val.get("timestamp", 0) > _FAQ_FEEDBACK_EXPIRE
+            ]
+            for key in stale_faq:
+                del _pending_faq_feedback[key]
+                cleaned["faq"] += 1
+
+            # 4. 清理 _msg_cache 中过期的群缓存
+            stale_msg_groups = [
+                gid for gid, entries in _msg_cache.items()
+                if not entries or now - entries[-1].get("time", 0) > _CACHE_TTL * 2
+            ]
+            for gid in stale_msg_groups:
+                _msg_cache.pop(gid, None)
+                cleaned["msg_cache"] += 1
+
+            # 5. 清理 OCR 延迟检查超时条目（超过 5 分钟未完成）
+            stale_ocr = [
+                mid for mid, item in _pending_ocr_checks.items()
+                if now - item.get("timestamp", 0) > 300
+            ]
+            for mid in stale_ocr:
+                _pending_ocr_checks.pop(mid, None)
+                _ocr_pending_ids.discard(mid)
+                cleaned["ocr"] += 1
+
+            # 6. 清理 _ocr_seen 中超过 500 条的旧记录
+            if len(_ocr_seen) > 500:
+                cutoff_ocr = now - 120
+                for k in list(_ocr_seen.keys()):
+                    if _ocr_seen[k] < cutoff_ocr:
+                        del _ocr_seen[k]
+
+            total_cleaned = sum(cleaned.values())
+            if total_cleaned > 0:
+                logger.info(
+                    f"[内存清理] 清理完成: 私聊历史={cleaned['private']} "
+                    f"群聊历史={cleaned['group']} FAQ反馈={cleaned['faq']} "
+                    f"消息缓存={cleaned['msg_cache']} OCR超时={cleaned['ocr']}"
+                )
+        except Exception as e:
+            logger.warning(f"[内存清理] 异常: {e}")
+
+
+def get_last_ws_msg_ts() -> float:
+    """获取最后一次收到 NapCat WS 消息的时间戳（用于僵死连接检测）"""
+    return _last_ws_msg_ts
+
+
 async def start_napcat_ws():
     """启动 NapCat WebSocket 客户端（后台任务）"""
     global _ws_client
@@ -1914,6 +2022,9 @@ async def start_napcat_ws():
     _ws_client = NapCatWSClient(ws_url, token)
     asyncio.create_task(_ws_client.start())
     logger.info(f"[NapCat WS] 后台任务已启动: {ws_url}")
+    # 启动周期性内存清理任务
+    asyncio.create_task(_periodic_memory_cleanup())
+    logger.info(f"[内存清理] 周期性清理任务已启动（间隔{_CLEANUP_INTERVAL}s，最大空闲{_CLEANUP_MAX_IDLE}s）")
     await asyncio.sleep(2)
 
     # 启动后同步 NapCat 群列表到 group_configs（自动学习）

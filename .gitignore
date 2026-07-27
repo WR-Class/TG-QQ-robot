@@ -39,3 +39,6 @@ test_*.py
 
 # Backups created by Web admin panel
 backups/
+
+# Docker & CI
+.dockerignore

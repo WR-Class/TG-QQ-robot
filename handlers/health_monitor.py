@@ -26,9 +26,12 @@ _NOTIFY_COOLDOWN = 300  # 同类告警 5 分钟内不重复
 _OFFLINE_RESTART_INTERVAL = 600  # 持续离线每 10 分钟尝试重启一次
 _START_TIME: float = time.time()
 
-
 _last_qrcode_notify_ts: float = 0
 _QRCODE_NOTIFY_COOLDOWN = 120  # 二维码推送冷却 2 分钟
+
+# 定期 session 备份：每 30 分钟在 NapCat 在线时备份一次
+_last_session_backup_ts: float = 0
+_SESSION_BACKUP_INTERVAL = 1800  # 30 分钟
 
 
 async def _read_qrcode_from_napcat() -> Optional[bytes]:
@@ -159,7 +162,7 @@ async def _read_napcat_logs(tail: int = 150) -> str:
                     i += size
                 return "\n".join(lines[-tail:])
     except Exception as e:
-        logger.debug(f"[健康监控] 读 NapCat 日志失败: {e}")
+        logger.warning(f"[健康监控] 读 NapCat 日志失败: {e}")
         return ""
 
 
@@ -202,6 +205,48 @@ async def _restart_napcat_container() -> bool:
         return False
 
 
+async def _wait_napcat_online(max_wait: int = 60, poll_interval: int = 5) -> bool:
+    """
+    重启 NapCat 后等待 session 恢复登录。
+    
+    利用持久化的 session 文件，NapCat 重启后通常 15-30 秒内能自动恢复登录。
+    不再尝试密码登录（YesCaptcha 不支持腾讯验证码，必定失败）。
+    
+    Args:
+        max_wait: 最大等待秒数（默认60秒）
+        poll_interval: 轮询间隔（默认5秒）
+    
+    Returns:
+        True: session 恢复成功（NapCat 在线）
+        False: 等待超时仍未登录（session 已失效，需扫码）
+    """
+    logger.info(f"[健康监控] 等待 NapCat session 恢复（最多 {max_wait}s）...")
+    elapsed = 0
+    # 前 15 秒只等待不探测（NapCat 重启后需要时间初始化 OneBot API）
+    initial_wait = 15
+    if poll_interval < initial_wait:
+        await asyncio.sleep(initial_wait)
+        elapsed = initial_wait
+    while elapsed < max_wait:
+        if elapsed >= initial_wait:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+        try:
+            probe = await _napcat_probe()
+            if probe.get("online") is True:
+                logger.info(f"[健康监控] NapCat session 恢复成功（等待 {elapsed}s）")
+                return True
+            # 检查日志是否已经在等待扫码（session 已失效）
+            logs = await _read_napcat_logs(tail=10)
+            if logs and ("二维码" in logs or "请扫描" in logs):
+                logger.warning(f"[健康监控] NapCat session 已失效，进入二维码登录状态（等待 {elapsed}s）")
+                return False
+        except Exception as e:
+            logger.debug(f"[健康监控] session 恢复探测异常: {e}")
+    logger.warning(f"[健康监控] session 恢复等待超时（{max_wait}s），session 可能已失效")
+    return False
+
+
 async def _auto_backup_session() -> None:
     """在 NapCat 恢复在线后自动备份 session 文件。"""
     try:
@@ -210,16 +255,28 @@ async def _auto_backup_session() -> None:
 
         async with aiohttp.ClientSession(
             connector=aiohttp.UnixConnector(path="/var/run/docker.sock"),
-            timeout=aiohttp.ClientTimeout(total=10),
+            timeout=aiohttp.ClientTimeout(total=120),
         ) as session:
-            # 从容器中拷贝 QQ 配置目录（session 文件）
-            async with session.get(
-                "http://localhost/containers/napcat/archive?path=/app/.config/QQ"
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"[健康监控] 自动备份 session: 读取容器目录失败 status={resp.status}")
-                    return
-                tar_data = await resp.read()
+            # 只备份 session 核心目录（跳过 nt_qq 全局资源目录，451MB+ 太大）
+            # nt_qq_<hash> 是账号级 session 数据（~53MB）
+            # NapCat 是 NapCat 配置数据（~2KB）
+            # nt_qq 是全局 QQ 资源（表情包等），不需要备份
+            session_dirs = []
+            for path in ["/app/.config/QQ/nt_qq_6a42480d67a8e09b3f2efdd9eb5e2782", "/app/.config/QQ/NapCat"]:
+                async with session.get(
+                    f"http://localhost/containers/napcat/archive?path={path}"
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"[健康监控] 自动备份 session: 读取 {path} 失败 status={resp.status}")
+                        continue
+                    tar_data = await resp.read()
+                    if tar_data:
+                        session_dirs.append((path, tar_data))
+                        logger.info(f"[健康监控] 自动备份 session: 读取 {path} 成功 ({len(tar_data)} bytes)")
+
+            if not session_dirs:
+                logger.warning("[健康监控] 自动备份 session: 未获取到任何 session 数据")
+                return
 
         # 解压到 backups 目录
         import shutil
@@ -227,34 +284,24 @@ async def _auto_backup_session() -> None:
         from pathlib import Path
 
         project_dir = Path(__file__).resolve().parent.parent
-        # Docker 内路径为 /app，宿主机映射为项目根目录
-        # napcat_qq 映射到 ./napcat_qq
-        # 使用独立的备份目录，不污染当前使用的 napcat_qq
         backup_root = project_dir / "backups"
         backup_root.mkdir(parents=True, exist_ok=True)
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M")
         dest = backup_root / f"napcat_{stamp}"
         if dest.exists():
-            logger.debug(f"[健康监控] 自动备份 session: {dest} 已存在，跳过")
+            logger.info(f"[健康监控] 自动备份 session: {dest.name} 已存在，跳过")
             return
 
-        with tarfile.open(fileobj=io.BytesIO(tar_data), mode="r") as tar:
-            # 只提取 session 相关文件（排除缓存和崩溃报告）
-            qq_session_members = [
-                m for m in tar.getmembers()
-                if "nt_qq" in m.name or "NapCat" in m.name
-            ]
-            if not qq_session_members:
-                logger.debug("[健康监控] 自动备份 session: 未找到 session 文件")
-                return
-            dest.mkdir(parents=True, exist_ok=True)
-            for member in qq_session_members:
-                # 安全检查：不跳转到上级目录
-                member_path = Path(member.name)
-                if ".." in member_path.parts:
-                    continue
-                tar.extract(member, dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        for path, tar_data in session_dirs:
+            with tarfile.open(fileobj=io.BytesIO(tar_data), mode="r") as tar:
+                for member in tar.getmembers():
+                    # 安全检查：不跳转到上级目录
+                    member_path = Path(member.name)
+                    if ".." in member_path.parts:
+                        continue
+                    tar.extract(member, dest)
 
         # 清理超过 7 个的旧备份
         existing = sorted(
@@ -265,13 +312,14 @@ async def _auto_backup_session() -> None:
         for old in existing[7:]:
             try:
                 shutil.rmtree(old)
+                logger.info(f"[健康监控] 清理旧备份: {old.name}")
             except Exception as e:
-                logger.debug(f"[健康监控] 清理旧备份失败: {e}")
+                logger.warning(f"[健康监控] 清理旧备份失败: {e}")
 
         logger.info(f"[健康监控] Session 自动备份完成: {dest.name}")
 
     except Exception as e:
-        logger.debug(f"[健康监控] 自动备份 session 异常: {e}")
+        logger.warning(f"[健康监控] 自动备份 session 异常: {e}")
 
 
 def _count_fetch_rkey_errors(logs: str, within_sec: int = 300) -> int:
@@ -513,42 +561,15 @@ def _notify_via_tg_sync(text: str) -> bool:
 
 
 async def _try_push_qrcode(logs: str) -> bool:
-    """检测日志中是否在等待扫码，如果是则先尝试密码登录，失败后再推送二维码。"""
+    """检测日志中是否在等待扫码，如果是则推送二维码到 TG。"""
     global _last_qrcode_notify_ts
 
-    # ===== 新增：在推送二维码之前，先尝试密码登录自动恢复 =====
-    try:
-        from handlers.captcha_solver import (
-            password_login_available,
-            try_password_login,
-        )
-        if password_login_available():
-            logger.warning("[健康监控] 检测到需要扫码，先尝试密码登录自动恢复...")
-            await _notify_via_tg_async(
-                "🔄 [健康监控] QQ 掉线，正在尝试密码登录自动恢复..."
-            )
-            pwd_ok = await try_password_login()
-            if pwd_ok:
-                add_health_event(
-                    "napcat", "password_login_ok",
-                    "密码登录自动恢复成功",
-                    notified=True,
-                )
-                await _notify_via_tg_async(
-                    "✅ [健康监控] QQ 密码登录自动恢复成功！无需手动操作。"
-                )
-                # 登录成功后备份 session
-                await _auto_backup_session()
-                return True
-            else:
-                logger.warning("[健康监控] 密码登录自动恢复失败，回退到二维码推送")
-                await _notify_via_tg_async(
-                    "⚠️ [健康监控] 密码登录自动恢复失败，请手动扫码登录。"
-                )
-    except Exception as e:
-        logger.warning(f"[健康监控] 密码登录尝试异常: {e}")
+    # ===== 不再尝试密码登录 =====
+    # YesCaptcha 不支持腾讯验证码（TencentCaptcha），密码登录必定失败。
+    # 改为：由调用方先重启 NapCat 并等待 session 恢复，
+    # session 恢复失败时才调用本函数推送二维码。
 
-    # ===== 原有逻辑：推送二维码 =====
+    # ===== 推送二维码 =====
     now = time.time()
     if now - _last_qrcode_notify_ts < _QRCODE_NOTIFY_COOLDOWN:
         return False
@@ -717,6 +738,22 @@ async def check_once() -> Dict[str, Any]:
                         restart_reason,
                         notified=notified,
                     )
+                    # 重启后等待 session 恢复（不再尝试密码登录）
+                    # session 有效时 15-30 秒内自动恢复；session 失效则等待超时后推二维码
+                    session_ok = await _wait_napcat_online(max_wait=90, poll_interval=5)
+                    if session_ok:
+                        await _notify_via_tg_async(
+                            "✅ [健康监控] NapCat 重启后 session 自动恢复成功"
+                        )
+                        await _auto_backup_session()
+                    else:
+                        # session 恢复失败，检查是否需要扫码
+                        post_logs = await _read_napcat_logs(tail=30)
+                        if post_logs and ("二维码" in post_logs or "请扫描" in post_logs):
+                            await _notify_via_tg_async(
+                                "⚠️ [健康监控] NapCat session 已失效，需要手动扫码登录"
+                            )
+                            await _try_push_qrcode(post_logs)
                 else:
                     add_health_event(
                         "napcat", "restart_failed",
@@ -726,21 +763,6 @@ async def check_once() -> Dict[str, Any]:
                     await _notify_via_tg_async(
                         f"❌ [健康监控] NapCat 自动重启失败，请手动重启。"
                     )
-                # 重启后等待一会儿再探测
-                await asyncio.sleep(8)
-
-                # 1c. 重启后检查是否进入验证码登录流程
-                # NapCat 重启后可能：快速登录成功 → 密码登录回退 → 需要验证码
-                # 此时应在二维码循环超时前主动解决验证码
-                post_logs = await _read_napcat_logs(tail=30)
-                if post_logs and "需要验证码" in post_logs:
-                    captcha_solved = await _try_auto_solve_captcha(post_logs)
-                    if captcha_solved:
-                        add_health_event(
-                            "napcat", "captcha_solved",
-                            "重启后检测到验证码，已自动解决",
-                            notified=True,
-                        )
 
     # === 第二步：API 探测 ==
     probe = await _napcat_probe()
@@ -758,7 +780,7 @@ async def check_once() -> Dict[str, Any]:
 
     notified = False
     if changed and status in ("offline", "error"):
-        # NapCat 已掉线，先尝试自动重启
+        # NapCat 已掉线，先尝试自动重启 + 等待 session 恢复
         restart_ok = await _restart_napcat_container()
         if restart_ok:
             notified = await _notify_via_tg_async(
@@ -766,27 +788,35 @@ async def check_once() -> Dict[str, Any]:
             )
             add_health_event("napcat", "auto_restart", f"API探测掉线触发重启: {msg}", notified=notified)
             logger.warning(f"[健康监控] NapCat {status}，已自动重启: {msg}")
-        else:
-            # 重启失败 → 检查是否有验证码需要自动解决
-            if logs:
-                captcha_solved = await _try_auto_solve_captcha(logs)
+            # 重启后等待 session 恢复
+            session_ok = await _wait_napcat_online(max_wait=90, poll_interval=5)
+            if session_ok:
+                await _notify_via_tg_async(
+                    "✅ [健康监控] NapCat 重启后 session 自动恢复成功"
+                )
+                await _auto_backup_session()
             else:
-                captcha_solved = False
-            if captcha_solved:
-                notified = True
-                add_health_event("napcat", "captcha_solved",
-                                 "验证码已通过 YesCaptcha 自动解决", notified=True)
-            else:
-                # 没有验证码或解决失败 → 尝试推送二维码
-                qr_pushed = await _try_push_qrcode(logs)
-                extra = ""
-                if qr_pushed:
-                    extra = "\n已推送二维码至 TG，扫码即可恢复"
-                notified = await _notify_via_tg_async(
-                    f"⚠️ [健康监控] NapCat 异常（自动重启失败）\n"
+                # session 恢复失败 → 推送二维码
+                post_logs = await _read_napcat_logs(tail=30)
+                if post_logs:
+                    qr_pushed = await _try_push_qrcode(post_logs)
+                else:
+                    qr_pushed = False
+                extra = "\n已推送二维码至 TG，扫码即可恢复" if qr_pushed else "\nsession 已失效，需手动扫码"
+                await _notify_via_tg_async(
+                    f"⚠️ [健康监控] NapCat 重启后 session 未恢复\n"
                     f"状态: {status}\n详情: {msg}{extra}\n"
                     f"请打开 http://localhost:56099 扫码重新登录管理号。"
                 )
+        else:
+            # 重启失败 → 直接推送二维码
+            qr_pushed = await _try_push_qrcode(logs) if logs else False
+            extra = "\n已推送二维码至 TG，扫码即可恢复" if qr_pushed else ""
+            notified = await _notify_via_tg_async(
+                f"⚠️ [健康监控] NapCat 异常（自动重启失败）\n"
+                f"状态: {status}\n详情: {msg}{extra}\n"
+                f"请打开 http://localhost:56099 扫码重新登录管理号。"
+            )
             add_health_event("napcat", status, f"自动重启失败: {msg}", notified=notified)
             logger.warning(f"[健康监控] NapCat {status}（重启失败）: {msg}")
     elif changed and status == "online":
@@ -800,11 +830,70 @@ async def check_once() -> Dict[str, Any]:
             last_ts = float((prev or {}).get("created_at") or 0)
             if time.time() - last_ts > 3600:
                 add_health_event("napcat", status, msg, notified=False)
+
+            # === 定期 session 备份（每 30 分钟）===
+            # session 有效时定期备份，确保掉线时有最新的 session 可用
+            global _last_session_backup_ts
+            now_ts = time.time()
+            if now_ts - _last_session_backup_ts >= _SESSION_BACKUP_INTERVAL:
+                await _auto_backup_session()
+                _last_session_backup_ts = now_ts
+
+            # === 僵死连接检测：NapCat 显示在线但长时间未收到任何群消息 ===
+            # 如果 WS 超过 20 分钟没收到消息，且 NapCat 日志中也没有最近的"接收 <-"记录
+            # 说明 QQ 连接已僵死（显示在线但实际收不到消息），需要重启
+            try:
+                from napcat_ws import get_last_ws_msg_ts
+                ws_idle = time.time() - get_last_ws_msg_ts()
+                if ws_idle > 7200:  # 2 小时无 WS 消息（避免安静期误触发）
+                    # 检查 NapCat 日志中最近的"接收 <- 群聊"记录
+                    stale_logs = await _read_napcat_logs(tail=80)
+                    if stale_logs and "接收 <- 群聊" not in stale_logs:
+                        now = time.time()
+                        if now - _last_restart_ts >= _RESTART_COOLDOWN:
+                            logger.warning(
+                                f"[健康监控] NapCat 僵死连接：在线但 {int(ws_idle/60)} 分钟无WS消息且日志无群消息记录，重启"
+                            )
+                            notified = await _notify_via_tg_async(
+                                f"⚠️ [健康监控] NapCat 疑似僵死连接（在线但 {int(ws_idle/60)} 分钟未收到消息），自动重启中..."
+                            )
+                            restart_ok = await _restart_napcat_container()
+                            if restart_ok:
+                                # 重启后等待 session 恢复
+                                session_ok = await _wait_napcat_online(max_wait=90, poll_interval=5)
+                                if session_ok:
+                                    await _notify_via_tg_async(
+                                        "✅ [健康监控] 僵死连接重启后 session 恢复成功"
+                                    )
+                                    await _auto_backup_session()
+                                    add_health_event(
+                                        "napcat", "auto_restart",
+                                        f"僵死连接重启成功（WS空闲{int(ws_idle/60)}分钟，session恢复）",
+                                        notified=notified,
+                                    )
+                                else:
+                                    # session 失效，推二维码
+                                    post_logs = await _read_napcat_logs(tail=30)
+                                    if post_logs:
+                                        await _try_push_qrcode(post_logs)
+                                    add_health_event(
+                                        "napcat", "restart_failed",
+                                        f"僵死连接重启后session未恢复（WS空闲{int(ws_idle/60)}分钟）",
+                                        notified=notified,
+                                    )
+                            else:
+                                add_health_event(
+                                    "napcat", "restart_failed",
+                                    "僵死连接重启失败",
+                                    notified=notified,
+                                )
+            except Exception as e:
+                logger.debug(f"[健康监控] 僵死连接检测异常: {e}")
         elif status in ("offline", "error"):
             last_ts = float((prev or {}).get("created_at") or 0)
             now = time.time()
-            # 持续离线超过 10 分钟且有日志证据 → 再尝试重启
-            restart_ok = False  # 初始化，避免 UnboundLocalError
+            # 持续离线超过 10 分钟且有日志证据 → 再尝试重启 + session 恢复
+            restart_ok = False
             if now - _last_restart_ts >= _OFFLINE_RESTART_INTERVAL:
                 logs = await _read_napcat_logs(tail=100)
                 if logs and _detect_offline_in_logs(logs, within_sec=1200):
@@ -815,17 +904,27 @@ async def check_once() -> Dict[str, Any]:
                             f"⚠️ [健康监控] NapCat 持续离线，已第2次自动重启"
                         )
                         add_health_event("napcat", "auto_restart", "持续离线触发重启", notified=notified)
+                        # 等待 session 恢复
+                        session_ok = await _wait_napcat_online(max_wait=90, poll_interval=5)
+                        if session_ok:
+                            await _notify_via_tg_async(
+                                "✅ [健康监控] 持续离线重启后 session 恢复成功"
+                            )
+                            await _auto_backup_session()
+                        else:
+                            # session 失效，推二维码
+                            post_logs = await _read_napcat_logs(tail=30)
+                            if post_logs:
+                                await _try_push_qrcode(post_logs)
                     else:
                         notified = await _notify_via_tg_async(
                             f"⚠️ [健康监控] NapCat 持续离线，自动重启失败，请手动处理"
                         )
                         add_health_event("napcat", "restart_failed", "持续离线重启失败", notified=notified)
-                # 持续离线状态下也检查是否需要推送二维码
-                if not restart_ok:
-                    await _try_push_qrcode(logs)
-            else:
-                # 冷却期内，仍尝试推送二维码（不重启）
-                logs = await _read_napcat_logs(tail=100)
+            if not restart_ok:
+                # 冷却期内或重启失败，仍尝试推送二维码（不重启）
+                if not logs:
+                    logs = await _read_napcat_logs(tail=100)
                 if logs:
                     await _try_push_qrcode(logs)
             # 超时仍发通知

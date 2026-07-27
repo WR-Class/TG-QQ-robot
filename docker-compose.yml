@@ -9,6 +9,7 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      - ./backups:/app/backups
       - ./.env:/app/.env
       - ./web:/app/web
       - ./web_server.py:/app/web_server.py
@@ -20,6 +21,7 @@ services:
       - ./napcat_bridge.py:/app/napcat_bridge.py
       - ./group_member_store.py:/app/group_member_store.py
       - ./config.py:/app/config.py
+      - ./main.py:/app/main.py
       # Docker socket for NapCat auto-restart when session goes stale
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -56,7 +58,7 @@ services:
   # 所有 QQ 群管功能（广告检测/撤回/禁言/名片监控/OCR/入群审核）
   # 以及 @机器人 AI 聊天和自然语言指令，全部通过此服务实现
   napcat:
-    image: mlikiowa/napcat-docker:3.8.12
+    image: mlikiowa/napcat-docker:latest
     container_name: napcat
     restart: unless-stopped
     ports:

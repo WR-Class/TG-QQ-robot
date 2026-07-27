@@ -157,7 +157,7 @@ async def _check_auth(x_admin_token: Optional[str] = Header(None)):
         return
     # 兼容旧版：允许密码本身作为 token（仅用于过渡）
     if token == pwd:
-        logger.info("使用密码直接认证（兼容模式），建议更新客户端以使用会话 token")
+        logger.debug("使用密码直接认证（兼容模式），建议更新客户端以使用会话 token")
         return
     raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
 
@@ -1264,15 +1264,21 @@ async def api_health(x_admin_token: Optional[str] = Header(None)):
     tg_ok = bool(settings.BOT_TOKEN)
     result["services"]["tg_bot"] = {"configured": tg_ok}
 
-    # SearXNG — 探测
-    searxng_ok = False
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://searxng:8080/search", params={"q": "test", "format": "json"})
-            searxng_ok = r.status_code in (200, 400)
-    except Exception as e:
-        logger.debug(f"SearXNG 健康检查异常: {e}")
+    # SearXNG — 探测（带 60 秒缓存，避免频繁搜索）
+    now_ts = time.time()
+    if now_ts - _searxng_health_cache["ts"] < _SEARXNG_CACHE_TTL:
+        searxng_ok = _searxng_health_cache["ok"]
+    else:
+        searxng_ok = False
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5) as c:
+                r = await c.get("http://searxng:8080/search", params={"q": "test", "format": "json"})
+                searxng_ok = r.status_code in (200, 400)
+        except Exception as e:
+            logger.debug(f"SearXNG 健康检查异常: {e}")
+        _searxng_health_cache["ok"] = searxng_ok
+        _searxng_health_cache["ts"] = now_ts
     result["services"]["searxng"] = {"ok": searxng_ok}
 
     # AI
@@ -1887,6 +1893,10 @@ def _build_ai_chat_system_prompt() -> str:
 # ============================================================
 
 _start_time = time.time()
+
+# SearXNG 健康检查缓存（避免每次 /api/health 都发起搜索请求）
+_searxng_health_cache = {"ok": True, "ts": 0}
+_SEARXNG_CACHE_TTL = 60  # 缓存 60 秒
 
 
 @app.on_event("startup")
