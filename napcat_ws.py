@@ -103,10 +103,28 @@ class NapCatWSClient:
                 async with self._session.ws_connect(url, heartbeat=30) as ws:
                     self._ws = ws
                     logger.info("[NapCat WS] 已连接")
-                    async for msg in ws:
-                        if not self._running:
-                            break
-                        await self._on_message(msg)
+                    # 消息空闲超时：120秒没收到任何消息则主动断开重连
+                    # 防止服务端静默断开后 aiohttp 无法检测到
+                    idle_timeout = 120
+                    last_msg_time = time.time()
+                    while self._running:
+                        try:
+                            msg = await asyncio.wait_for(ws.receive(), timeout=30)
+                            last_msg_time = time.time()
+                            if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.ERROR):
+                                logger.warning(f"[NapCat WS] 收到关闭/错误帧: {msg.type}，准备重连")
+                                break
+                            if msg.type in (aiohttp.WSMsgType.TEXT, aiohttp.WSMsgType.BINARY):
+                                await self._on_message(msg)
+                            # PING/PONG 由 heartbeat 参数自动处理
+                        except asyncio.TimeoutError:
+                            # 30秒没消息，检查是否超时
+                            if time.time() - last_msg_time > idle_timeout:
+                                logger.warning(
+                                    f"[NapCat WS] 消息空闲超时({int(time.time()-last_msg_time)}s)，主动断开重连"
+                                )
+                                break
+                            continue
             except asyncio.CancelledError:
                 break
             except Exception as e:
