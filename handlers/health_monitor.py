@@ -33,6 +33,10 @@ _QRCODE_NOTIFY_COOLDOWN = 120  # 二维码推送冷却 2 分钟
 _last_session_backup_ts: float = 0
 _SESSION_BACKUP_INTERVAL = 1800  # 30 分钟
 
+# 深度探测：每 5 分钟发测试消息验证 QQ 连接是否真正存活
+_last_deep_probe_ts: float = 0
+_DEEP_PROBE_INTERVAL = 300  # 5 分钟
+
 
 async def _read_qrcode_from_napcat() -> Optional[bytes]:
     """通过 Docker API 从 NapCat 容器读取二维码图片（PNG 字节）。"""
@@ -351,8 +355,13 @@ def _count_fetch_rkey_errors(logs: str, within_sec: int = 300) -> int:
     return count
 
 
-def _detect_offline_in_logs(logs: str, within_sec: int = 600) -> bool:
-    """检测日志中是否有近期掉线记录。匹配多种掉线日志模式。within_sec 默认 10 分钟。"""
+def _detect_offline_in_logs(logs: str, within_sec: int = 600, min_ts: float = 0) -> bool:
+    """检测日志中是否有近期掉线记录。匹配多种掉线日志模式。
+
+    Args:
+        within_sec: 只检查距今 within_sec 秒内的日志，默认 10 分钟
+        min_ts: 只检查 unix 时间戳 > min_ts 的日志（用于排除重启前的旧日志），默认 0 不过滤
+    """
     import re
 
     now = time.time()
@@ -363,6 +372,7 @@ def _detect_offline_in_logs(logs: str, within_sec: int = 600) -> bool:
         "网络连接异常",
         "session 已过期",
         "被踢下线",
+        "KickedOffLine",  # 腾讯主动踢线通知
         "登录失效",
         "1006514",  # NTQQ 网络连接异常错误码
     ]
@@ -387,11 +397,130 @@ def _detect_offline_in_logs(logs: str, within_sec: int = 600) -> bool:
             from datetime import datetime as dt2
             now_dt = dt2.fromtimestamp(now)
             ts = ts.replace(year=now_dt.year)
-            if time.mktime(ts.timetuple()) > now - within_sec:
+            ts_epoch = time.mktime(ts.timetuple())
+            # 必须同时满足：在 within_sec 窗口内 且 在 min_ts 之后
+            if ts_epoch > now - within_sec and ts_epoch > min_ts:
                 logger.info(f"[健康监控] 检测到近期掉线日志: {line.strip()[:80]}")
                 return True
         except Exception:
             continue
+    return False
+
+
+def _detect_login_loop_in_logs(logs: str, within_sec: int = 300, min_ts: float = 0) -> bool:
+    """检测日志中是否有近期的二维码登录循环（QQ 未真正登录）。
+
+    NapCat 被 KickedOffLine 后进入二维码登录循环，日志中反复出现：
+    - "请扫描下面的二维码"
+    - "[Core] [Login] Login Error"
+
+    此时 get_status API 仍返回 online=true（假在线），但实际 QQ 未登录。
+    检测到这些关键字即可判定为假在线，不依赖群消息活跃度。
+
+    Args:
+        within_sec: 只检查距今 within_sec 秒内的日志
+        min_ts: 只检查 unix 时间戳 > min_ts 的日志（用于排除重启前的旧日志）
+    """
+    import re
+
+    now = time.time()
+    patterns = [
+        "请扫描下面的二维码",
+        "[Login] Login Error",
+    ]
+    for line in logs.splitlines():
+        matched = False
+        for p in patterns:
+            if p in line:
+                matched = True
+                break
+        if not matched:
+            continue
+        m = re.match(r"(\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line)
+        if not m:
+            continue
+        try:
+            from datetime import datetime
+            from datetime import datetime as dt2
+
+            ts = datetime.strptime(m.group(1), "%m-%d %H:%M:%S")
+            now_dt = dt2.fromtimestamp(now)
+            ts = ts.replace(year=now_dt.year)
+            ts_epoch = time.mktime(ts.timetuple())
+            # 必须同时满足：在 within_sec 窗口内 且 在 min_ts 之后
+            if ts_epoch > now - within_sec and ts_epoch > min_ts:
+                logger.info(f"[健康监控] 检测到登录循环日志（假在线）: {line.strip()[:80]}")
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _detect_silent_connection(logs: str, min_ts: float = 0) -> bool:
+    """检测静默断连：QQ 连接已死但 API 仍返回 online=true。
+
+    判断依据：NapCat 每小时自动执行 ServerTime 时间同步（不依赖 QQ 连接），
+    而群消息"接收 <-"只在 QQ 连接正常时才有。
+    如果日志中有 2 条以上 ServerTime 记录（跨越 ~2 小时），但最后一条
+    "接收 <-"早于最后一条 ServerTime 超过 1 小时，说明 QQ 连接已静默死亡。
+
+    不依赖"群里必须有消息"——只依赖 ServerTime（固定心跳）和接收消息的相对关系。
+    """
+    import re
+    from datetime import datetime
+    from datetime import datetime as dt2
+
+    now = time.time()
+    now_dt = dt2.fromtimestamp(now)
+
+    server_time_ts: list = []
+    last_recv_ts: float = 0
+
+    for line in logs.splitlines():
+        m = re.match(r"(\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line)
+        if not m:
+            continue
+        try:
+            ts = datetime.strptime(m.group(1), "%m-%d %H:%M:%S")
+            ts = ts.replace(year=now_dt.year)
+            ts_epoch = time.mktime(ts.timetuple())
+            if ts_epoch <= min_ts:
+                continue
+            if "ServerTime" in line and "时间同步" in line:
+                server_time_ts.append(ts_epoch)
+            elif "接收 <-" in line:
+                if ts_epoch > last_recv_ts:
+                    last_recv_ts = ts_epoch
+        except Exception:
+            continue
+
+    # 需要至少 2 条 ServerTime（跨越约 2 小时），才有足够证据判断
+    if len(server_time_ts) < 2:
+        return False
+
+    latest_st = server_time_ts[-1]
+    # 最后一条 ServerTime 距今超过 70 分钟才认为数据过时
+    # （ServerTime 每小时一条，70 分钟覆盖一个完整周期+余量）
+    if now - latest_st > 4200:
+        return False
+
+    # 最后一条"接收 <-"比最后一条 ServerTime 早超过 1 小时
+    # 说明在最近 1+ 小时内 QQ 连接已死，只有 ServerTime 心跳
+    if last_recv_ts > 0 and latest_st - last_recv_ts > 3600:
+        idle_min = int((now - last_recv_ts) / 60)
+        logger.warning(
+            f"[健康监控] 静默断连：最后群消息 {idle_min} 分钟前，"
+            f"但 ServerTime 仍在同步（{len(server_time_ts)} 条），QQ 连接已死"
+        )
+        return True
+
+    # 如果完全没有"接收 <-"记录但有 2+ 条 ServerTime
+    if last_recv_ts == 0 and len(server_time_ts) >= 2:
+        logger.warning(
+            f"[健康监控] 静默断连：无任何群消息记录但有 {len(server_time_ts)} 条 ServerTime"
+        )
+        return True
+
     return False
 
 
@@ -447,6 +576,68 @@ async def _napcat_probe() -> Dict[str, Any]:
     except Exception as e:
         result["message"] = f"探测失败: {e}"
         return result
+
+
+async def _deep_probe_qq_connection() -> bool:
+    """深度探测 QQ 连接是否真正存活。
+
+    NapCat 的 get_status API 在 QQ 连接静默死亡时仍返回 online=true（假在线）。
+    唯一可靠的验证方法是主动发一条消息：如果 QQ 连接已死，send_msg 会返回
+    retcode=1006514 / "网络连接异常"。
+
+    通过给自己发一条不可见消息（表情）来测试，不影响群成员。
+    返回 True=连接正常, False=连接已死。
+    """
+    global _last_deep_probe_ts
+    from config import settings
+
+    try:
+        import aiohttp
+
+        headers = {"Content-Type": "application/json"}
+        token = getattr(settings, "NAPCAT_ACCESS_TOKEN", "") or ""
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        base = (getattr(settings, "NAPCAT_API_URL", "") or "").rstrip("/")
+        if not base:
+            return True
+
+        async with aiohttp.ClientSession() as session:
+            # 获取自己的 QQ 号
+            async with session.post(
+                f"{base}/get_login_info",
+                headers=headers,
+                json={},
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp:
+                data = await resp.json()
+                self_qq = (data.get("data") or {}).get("user_id")
+                if not self_qq:
+                    return True  # 无法获取 QQ 号，跳过探测
+
+            # 发送测试消息给自己（表情，不可见不影响群成员）
+            async with session.post(
+                f"{base}/send_private_msg",
+                headers=headers,
+                json={"user_id": self_qq, "message": "[CQ:face,id=0]"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                retcode = data.get("retcode", 0)
+                msg = str(data.get("message", "") or "")
+
+                # 1006514 = NTQQ 网络连接异常，QQ 连接已死
+                if retcode != 0 or "1006514" in msg or "网络连接异常" in msg:
+                    logger.warning(
+                        f"[健康监控] 深度探测: QQ连接已死 "
+                        f"(retcode={retcode}, msg={msg[:120]})"
+                    )
+                    return False
+                logger.debug(f"[健康监控] 深度探测: QQ连接正常 (retcode={retcode})")
+                return True
+    except Exception as e:
+        logger.debug(f"[健康监控] 深度探测异常（不判定为离线）: {e}")
+        return True  # 异常时不判定为离线，避免误报
 
 
 # ===== Prometheus 指标收集 =====
@@ -720,7 +911,8 @@ async def check_once() -> Dict[str, Any]:
             restart_reason = f"检测到 {rkey_count} 次 FetchRkey 失败（session 即将死亡）"
 
         # 1b. 检测掉线日志（窗口 600 秒，覆盖重启后启动延迟）
-        if not should_restart and _detect_offline_in_logs(logs, within_sec=600):
+        # 传入 _last_restart_ts 排除重启前的旧掉线日志，避免重启后旧日志持续误触发
+        if not should_restart and _detect_offline_in_logs(logs, within_sec=600, min_ts=_last_restart_ts):
             should_restart = True
             restart_reason = "检测到掉线日志"
 
@@ -773,6 +965,51 @@ async def check_once() -> Dict[str, Any]:
         else ("offline" if online is False else ("error" if not probe.get("ok") else "unknown"))
     )
     msg = probe.get("message") or ""
+
+    # === 假在线检测 ===
+    # NapCat 被 KickedOffLine 后，get_status API 仍返回 online=true，但 QQ 未真正登录
+    # 检测日志中是否有近期的二维码登录循环（Login Error / 请扫描下面的二维码）
+    # 这些关键字只在 QQ 未登录时出现，不依赖群消息活跃度
+    # 注意：传入 _last_restart_ts 作为 min_ts，排除重启前的旧登录循环日志
+    # 避免 NapCat 重启后 session 恢复成功但旧日志仍触发误报
+    if status == "online":
+        if not logs:
+            logs = await _read_napcat_logs(tail=50)
+        if logs and _detect_login_loop_in_logs(logs, within_sec=300, min_ts=_last_restart_ts):
+            logger.warning("[健康监控] NapCat 假在线：API 返回 online=true 但日志显示二维码登录循环，QQ 未真正登录")
+            status = "offline"
+            msg = f"假在线（API返回online但QQ未登录，检测到登录循环）: {msg}"
+            online = False
+
+    # === 静默断连检测 ===
+    # QQ 连接静默死亡（无 KickedOffLine、无登录循环），API 仍返回 online=true
+    # 但实际收不到任何群消息，只有每小时一次的 ServerTime 心跳
+    # 判断依据：2+ 条 ServerTime 但"接收 <-"比最后一条 ServerTime 早超 1 小时
+    # 注意：不使用 _last_restart_ts 过滤，因为 napcat 可能没重启过，日志是连续的
+    if status == "online":
+        silent_logs = await _read_napcat_logs(tail=500)
+        if silent_logs and _detect_silent_connection(silent_logs, min_ts=0):
+            logger.warning("[健康监控] NapCat 静默断连：API 返回 online=true 但 QQ 连接已死（只有 ServerTime 无群消息）")
+            status = "offline"
+            msg = f"静默断连（API返回online但QQ连接已死，只有ServerTime心跳）: {msg}"
+            online = False
+
+    # === 深度探测（每 5 分钟）===
+    # API 返回 online=true 且登录循环/静默断连检测都通过后，
+    # 主动发一条消息测试 QQ 连接是否真正存活。
+    # 解决静默断连检测的 1 小时延迟问题（ServerTime 每小时才一次）
+    if status == "online":
+        now_ts = time.time()
+        if now_ts - _last_deep_probe_ts >= _DEEP_PROBE_INTERVAL:
+            _last_deep_probe_ts = now_ts
+            qq_alive = await _deep_probe_qq_connection()
+            if not qq_alive:
+                logger.warning(
+                    "[健康监控] NapCat 深度探测失败：API 返回 online=true 但发消息返回网络异常，QQ 连接已死"
+                )
+                status = "offline"
+                msg = f"深度探测失败（API返回online但发消息返回网络异常）: {msg}"
+                online = False
 
     prev = latest_health_status("napcat")
     prev_status = (prev or {}).get("status")
@@ -839,56 +1076,7 @@ async def check_once() -> Dict[str, Any]:
                 await _auto_backup_session()
                 _last_session_backup_ts = now_ts
 
-            # === 僵死连接检测：NapCat 显示在线但长时间未收到任何群消息 ===
-            # 如果 WS 超过 20 分钟没收到消息，且 NapCat 日志中也没有最近的"接收 <-"记录
-            # 说明 QQ 连接已僵死（显示在线但实际收不到消息），需要重启
-            try:
-                from napcat_ws import get_last_ws_msg_ts
-                ws_idle = time.time() - get_last_ws_msg_ts()
-                if ws_idle > 7200:  # 2 小时无 WS 消息（避免安静期误触发）
-                    # 检查 NapCat 日志中最近的"接收 <- 群聊"记录
-                    stale_logs = await _read_napcat_logs(tail=80)
-                    if stale_logs and "接收 <- 群聊" not in stale_logs:
-                        now = time.time()
-                        if now - _last_restart_ts >= _RESTART_COOLDOWN:
-                            logger.warning(
-                                f"[健康监控] NapCat 僵死连接：在线但 {int(ws_idle/60)} 分钟无WS消息且日志无群消息记录，重启"
-                            )
-                            notified = await _notify_via_tg_async(
-                                f"⚠️ [健康监控] NapCat 疑似僵死连接（在线但 {int(ws_idle/60)} 分钟未收到消息），自动重启中..."
-                            )
-                            restart_ok = await _restart_napcat_container()
-                            if restart_ok:
-                                # 重启后等待 session 恢复
-                                session_ok = await _wait_napcat_online(max_wait=90, poll_interval=5)
-                                if session_ok:
-                                    await _notify_via_tg_async(
-                                        "✅ [健康监控] 僵死连接重启后 session 恢复成功"
-                                    )
-                                    await _auto_backup_session()
-                                    add_health_event(
-                                        "napcat", "auto_restart",
-                                        f"僵死连接重启成功（WS空闲{int(ws_idle/60)}分钟，session恢复）",
-                                        notified=notified,
-                                    )
-                                else:
-                                    # session 失效，推二维码
-                                    post_logs = await _read_napcat_logs(tail=30)
-                                    if post_logs:
-                                        await _try_push_qrcode(post_logs)
-                                    add_health_event(
-                                        "napcat", "restart_failed",
-                                        f"僵死连接重启后session未恢复（WS空闲{int(ws_idle/60)}分钟）",
-                                        notified=notified,
-                                    )
-                            else:
-                                add_health_event(
-                                    "napcat", "restart_failed",
-                                    "僵死连接重启失败",
-                                    notified=notified,
-                                )
-            except Exception as e:
-                logger.debug(f"[健康监控] 僵死连接检测异常: {e}")
+            # 假在线检测已在 API 探测后处理，此处不再重复检测
         elif status in ("offline", "error"):
             last_ts = float((prev or {}).get("created_at") or 0)
             now = time.time()
@@ -896,8 +1084,12 @@ async def check_once() -> Dict[str, Any]:
             restart_ok = False
             if now - _last_restart_ts >= _OFFLINE_RESTART_INTERVAL:
                 logs = await _read_napcat_logs(tail=100)
-                if logs and _detect_offline_in_logs(logs, within_sec=1200):
-                    logger.warning(f"[健康监控] NapCat 持续离线，再次尝试自动重启")
+                # 静默断连没有掉线日志（无 KickedOffLine），也需要重启
+                has_offline_logs = logs and _detect_offline_in_logs(logs, within_sec=1200)
+                has_silent = logs and _detect_silent_connection(logs, min_ts=0)
+                if has_offline_logs or has_silent:
+                    restart_reason = "持续离线+掉线日志" if has_offline_logs else "持续离线+静默断连"
+                    logger.warning(f"[健康监控] NapCat 持续离线（{restart_reason}），再次尝试自动重启")
                     restart_ok = await _restart_napcat_container()
                     if restart_ok:
                         notified = await _notify_via_tg_async(

@@ -362,7 +362,7 @@ async def _ai_analyze_with_retry(text: str, username: str, user_bio: str, max_re
     )
 
     def _sync_call():
-        """在独立线程中同步调用 OpenAI"""
+        """在独立线程中同步调用 OpenAI，返回 (content, reasoning_content)"""
         import httpx
         from openai import OpenAI
         ad_key = settings.AD_AI_API_KEY or settings.AI_API_KEY
@@ -376,23 +376,54 @@ async def _ai_analyze_with_retry(text: str, username: str, user_bio: str, max_re
         response = client.chat.completions.create(
             model=settings.AI_MODEL,
             messages=[
-                {"role": "system", "content": "你是广告检测AI。只返回JSON格式{\"score\":数字,\"reason\":\"理由\"}，不要其他文字。"},
+                {"role": "system", "content": "你是广告检测AI。只返回JSON格式{\"score\":数字,\"reason\":\"理由\"}，不要其他文字，不要markdown代码块。"},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=500,
         )
-        return (response.choices[0].message.content or "").strip()
+        msg = response.choices[0].message
+        content = (msg.content or "").strip()
+        # 去除 markdown 代码块包裹（```json ... ```）
+        if content.startswith("```"):
+            content = re.sub(r'^```(?:json)?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
+            content = content.strip()
+        # agnes-2.0-flash 等推理模型可能将输出放在 reasoning_content 中
+        reasoning_content = ""
+        try:
+            reasoning_content = (getattr(msg, "reasoning_content", None) or "").strip()
+        except Exception:
+            pass
+        return content, reasoning_content
 
     for attempt in range(max_retries):
         try:
-            content = await asyncio.wait_for(
+            content, reasoning_content = await asyncio.wait_for(
                 asyncio.to_thread(_sync_call),
                 timeout=AI_TIMEOUT,
             )
             logger.info(f"[AI广告检测] 原始返回: [{content[:100]}]")
 
             if not content:
+                # content 为空时，从 reasoning_content 中提取评分
+                if reasoning_content:
+                    logger.info(f"[AI广告检测] content为空, 从reasoning_content提取: [{reasoning_content[:100]}]")
+                    # 从 reasoning_content 中提取 JSON
+                    json_match = re.search(r'\{[^}]+\}', reasoning_content)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group())
+                            score = max(0, min(100, int(float(result.get("score", 0)))))
+                            reason = result.get("reason", "")
+                            return {"score": score, "reason": reason, "is_ad": score >= SCORE_MUTE}
+                        except (json.JSONDecodeError, ValueError) as e:
+                            logger.warning(f"[AI广告检测] reasoning_content JSON解析失败: {e}")
+                    # 从 reasoning_content 中提取纯数字评分
+                    score_match = re.search(r'score["\']?\s*[:=]\s*(\d+)', reasoning_content, re.IGNORECASE)
+                    if score_match:
+                        score = max(0, min(100, int(score_match.group(1))))
+                        return {"score": score, "reason": "AI推理提取(无格式化输出)", "is_ad": score >= SCORE_MUTE}
                 logger.warning(f"[AI广告检测] 返回空, 尝试 {attempt+1}/{max_retries}")
                 await asyncio.sleep(0.3 * (attempt + 1))
                 continue
@@ -401,7 +432,7 @@ async def _ai_analyze_with_retry(text: str, username: str, user_bio: str, max_re
             json_match = re.search(r'\{[^}]+\}', content)
             if json_match:
                 result = json.loads(json_match.group())
-                score = max(0, min(100, int(result.get("score", 0))))
+                score = max(0, min(100, int(float(result.get("score", 0)))))
                 reason = result.get("reason", "")
                 return {"score": score, "reason": reason, "is_ad": score >= SCORE_MUTE}
 

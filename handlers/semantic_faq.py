@@ -93,8 +93,13 @@ async def match_faq_async(text: str, group_id: int = 0) -> Optional[Dict[str, An
 
 
 def _get_candidates(group_id: int = 0) -> List[Dict[str, Any]]:
-    """获取候选 FAQ 条目（含 question 或 keyword 的条目）。"""
-    # 语义类型条目
+    """获取 AI 语义匹配候选条目（仅 semantic 类型）。
+
+    keyword 类型条目不进入 AI 语义匹配候选，避免 AI 误判导致精确关键词
+    条目被误触发（例如用户发 URL，AI 误关联到"群文档"）。
+    keyword 条目由 match_faq_keyword() 做精确子串匹配，只有消息中真正
+    包含关键词才会命中。
+    """
     try:
         from handlers.moderation_store import list_semantic_faq_entries
 
@@ -103,13 +108,11 @@ def _get_candidates(group_id: int = 0) -> List[Dict[str, Any]]:
         logger.warning(f"[FAQ] 获取语义条目失败: {e}")
         semantic_entries = []
 
-    # 所有启用条目，取有 question/keyword 的
-    all_entries = _load_faq_entries()
+    # 仅返回 semantic 类型条目（有 question/keyword 的）
     candidates = [
-        e for e in all_entries
+        e for e in semantic_entries
         if e.get("question", "").strip() or e.get("keyword", "").strip()
     ]
-
     return candidates
 
 
@@ -137,14 +140,22 @@ async def _call_ai_semantic_async(user_text: str, candidates: List[Dict[str, Any
     for i, entry in enumerate(candidates):
         question = entry.get("question", "").strip() or entry.get("keyword", "").strip()
         answer = entry.get("answer", "").strip()[:60]
-        faq_items.append(f'{i+1}. 问题: {question} -> 回答: {answer}')
+        faq_items.append(f'{i+1}. 关键词: {question} -> 回答: {answer}')
 
     faq_text = "\n".join(faq_items)
     prompt = (
-        "你是一个FAQ匹配助手。下面是已知的问答库，请判断用户的消息是否命中其中某一条。\n"
+        "你是一个FAQ匹配助手。下面是已知的关键词-回答库。\n"
+        "判断用户的消息是否在**明确询问或请求**某个关键词对应的内容。\n\n"
+        "匹配规则（严格遵守）：\n"
+        "1. 用户必须是在**主动询问/索要**该关键词对应的东西，而不是在聊天中顺带提及\n"
+        "2. 例如关键词「群文档」：只有用户说「群文档在哪」「发一下群文档」「群文档地址」才算命中；"
+        "用户说「这个任务太长了」「文档里写了什么」不算命中\n"
+        "3. 例如关键词「中转地址」：只有用户说「中转地址是什么」「发一下中转地址」才算命中\n"
+        "4. 普通聊天、讨论、闲聊中的偶发性词汇不算命中\n"
+        "5. 如果不确定，输出0（不命中）\n\n"
         "如果命中，请只输出该条目的编号（数字）；如果都不匹配，输出0。\n"
         "只输出数字，不要输出任何其他文字。\n\n"
-        f"问答库:\n{faq_text}\n\n"
+        f"关键词-回答库:\n{faq_text}\n\n"
         f"用户消息: {user_text}\n"
         "命中的条目编号:"
     )
